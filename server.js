@@ -3,6 +3,7 @@ const express = require('express');
 const multer  = require('multer');
 const cors    = require('cors');
 const path    = require('path');
+const sharp   = require('sharp');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -41,6 +42,30 @@ function subjectType(s) {
 // ── Gemini vision (direct API — no SDK, works in all regions) ────────────────
 // Uses gemini-2.5-flash (current free tier model as of 2026), fast, and supports multimodal vision
 const GEMINI_VISION_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+
+// ── Image compression (resize large camera photos before sending to Gemini) ───
+// Gemini inline_data limit is ~5MB per image. Camera phones produce 10-20MB images.
+// Resize to max 1600px on longest side, JPEG quality 82 — enough for OCR accuracy.
+async function compressImage(file) {
+  const MAX_BYTES = 4 * 1024 * 1024; // 4MB target
+  if (file.size <= MAX_BYTES || file.mimetype === 'application/pdf') {
+    return { buffer: file.buffer, mimetype: file.mimetype };
+  }
+  try {
+    const compressed = await sharp(file.buffer)
+      .rotate()                        // auto-rotate from EXIF (phone orientation)
+      .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 82, progressive: true })
+      .toBuffer();
+    console.log('Compressed', file.originalname || 'image',
+      'from', Math.round(file.size/1024) + 'KB',
+      'to', Math.round(compressed.length/1024) + 'KB');
+    return { buffer: compressed, mimetype: 'image/jpeg' };
+  } catch(err) {
+    console.warn('Compression failed for', file.originalname, '—', err.message, '— sending original');
+    return { buffer: file.buffer, mimetype: file.mimetype };
+  }
+}
 
 // ── Gemini vision via direct fetch (no SDK — works in all regions) ────────────
 async function callGeminiVision(parts, maxAttempts = 3) {
@@ -82,53 +107,81 @@ async function callGeminiVision(parts, maxAttempts = 3) {
   }
 }
 
-// Extract and consolidate text from multiple uploaded pages (camera photos or PDFs)
-async function extractTextFromFiles(files, grade, subject, topic) {
+// ── Page limits ──────────────────────────────────────────────────────────────
+const MAX_NOTES_PAGES = 5;   // max pages for notes/questions (5 pages = one topic section)
+const MAX_PAPER_PAGES = 10;  // max pages for past paper analysis
+
+// Extract and consolidate text from uploaded pages (camera photos or PDFs)
+// ─ Images:  compressed to <4MB, all sent in one Gemini call
+// ─ PDFs:    each PDF file read separately (Gemini REST supports PDF inline_data)
+async function extractTextFromFiles(files, grade, subject, topic, onProgress = null) {
   if (!files || files.length === 0) return null;
 
   if (!process.env.GEMINI_API_KEY) {
-    console.warn('GEMINI_API_KEY not set — cannot read uploaded images. Falling back to topic-only mode.');
+    console.warn('GEMINI_API_KEY not set — falling back to topic-only mode.');
     return null;
   }
 
-  try {
-    const pageCount = files.length;
+  // Cap pages to avoid overloading Gemini and Groq context
+  if (files.length > MAX_NOTES_PAGES) {
+    console.warn('Too many pages (' + files.length + ') — capping at ' + MAX_NOTES_PAGES);
+    files = files.slice(0, MAX_NOTES_PAGES);
+  }
 
-    // Build parts array: all images first, then the instruction text
-    const imageParts = files.map(file => ({
-      inline_data: {
-        mime_type: file.mimetype === 'application/pdf' ? 'application/pdf' : file.mimetype,
-        data: file.buffer.toString('base64')
+  const pdfs   = files.filter(f => f.mimetype === 'application/pdf');
+  const images = files.filter(f => f.mimetype !== 'application/pdf');
+  let allText = '';
+
+  // ── PDFs: read each separately (Gemini REST supports PDF inline_data natively)
+  for (let i = 0; i < pdfs.length; i++) {
+    if (onProgress) onProgress('📄 Reading PDF ' + (i+1) + ' of ' + pdfs.length + '…');
+    try {
+      const pdfText = await callGeminiVision([
+        { inline_data: { mime_type: 'application/pdf', data: pdfs[i].buffer.toString('base64') } },
+        { text: 'This is a page from an ICSE ' + grade + ' ' + subject + ' textbook'
+            + (topic ? ' about "' + topic + '"' : '') + '. '
+            + 'Transcribe ALL text: headings, definitions, formulas, diagrams, tables, examples. '
+            + 'Plain text only. Start directly with the content.' }
+      ]);
+      if (pdfText) {
+        allText += (allText ? '\n\n--- PDF ' + (i+1) + ' ---\n\n' : '') + pdfText;
+        console.log('PDF', i+1, 'extracted:', pdfText.length, 'chars');
+        if (onProgress) onProgress('✅ PDF ' + (i+1) + ' read (' + pdfText.length + ' chars)');
       }
-    }));
-
-    const textPart = {
-      text: `You are reading ${pageCount} page${pageCount > 1 ? 's' : ''} from an ICSE ${grade} ${subject} textbook.
-${topic ? 'Topic: "' + topic + '"' : ''}
-
-These pages may be photographed with a handheld camera — they could be slightly blurry, angled, or partially overlapping. Read everything as accurately as possible.
-
-TASK: Transcribe ALL visible text from ALL ${pageCount} page${pageCount > 1 ? 's' : ''} into one clean document. Include:
-- All headings, subheadings, and paragraph text
-- All definitions (exact wording)
-- All formulas and equations (use text notation: F = ma, E = mc^2)
-- All numbered lists and bullet points
-- All table content (preserve rows and columns)
-- All diagram labels (write as: "Diagram: [name] — Label 1: [part name], Label 2: [part name]...")
-- All examples and solved problems
-
-If pages overlap, include the content only once.
-Start directly with the transcribed content — no introduction or preamble.`
-    };
-
-    const extracted = await callGeminiVision([...imageParts, textPart]);
-    console.log('Gemini extracted', extracted.length, 'chars from', pageCount, 'file(s)');
-    return extracted;
-  } catch(err) {
-    console.error('Gemini vision error:', err.message);
-    return null;
+    } catch(err) { console.error('PDF', i+1, 'failed:', err.message); }
+    if (i < pdfs.length - 1) await sleep(1200);
   }
+
+  // ── Images: compress all then send in one Gemini call
+  if (images.length > 0) {
+    if (onProgress) onProgress('🗜️ Compressing ' + images.length + ' image' + (images.length > 1 ? 's' : '') + '…');
+    const compressed = await Promise.all(images.map(f => compressImage(f)));
+    if (onProgress) onProgress('📖 AI reading ' + images.length + ' image' + (images.length > 1 ? 's' : '') + '…');
+    const imageParts = compressed.map(f => ({
+      inline_data: { mime_type: f.mimetype, data: f.buffer.toString('base64') }
+    }));
+    try {
+      const imageText = await callGeminiVision([
+        ...imageParts,
+        { text: 'You are reading ' + images.length + ' page' + (images.length > 1 ? 's' : '')
+            + ' from an ICSE ' + grade + ' ' + subject + ' textbook'
+            + (topic ? ' about "' + topic + '"' : '') + '. '
+            + 'Pages may be handheld camera photos — slightly blurry or angled is fine. '
+            + 'Transcribe ALL text: headings, definitions, formulas, diagrams, tables, examples. '
+            + 'If pages overlap, include content once. Plain text only. Start directly with the content.' }
+      ]);
+      if (imageText) {
+        allText += (allText ? '\n\n--- Images ---\n\n' : '') + imageText;
+        console.log('Images extracted:', imageText.length, 'chars from', images.length, 'file(s)');
+        if (onProgress) onProgress('✅ ' + images.length + ' image' + (images.length > 1 ? 's' : '') + ' read (' + imageText.length + ' chars)');
+      }
+    } catch(err) { console.error('Image extraction failed:', err.message); }
+  }
+
+  console.log('Total extracted:', allText.length, 'chars from', files.length, 'file(s)');
+  return allText || null;
 }
+
 
 // ── Groq text helper ──────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `You are a senior ICSE/ISC curriculum expert, examiner, and question paper setter with 20+ years of experience setting and marking actual ICSE board papers.
@@ -676,8 +729,14 @@ function buildBankPrompt(grade, subject, topic) {
 // ── PAST PAPER ANALYSIS ───────────────────────────────────────────────────────
 // Architecture: Gemini = OCR only (plain text, never fails)
 //               Groq   = solve from text + generate new questions
-async function analyzePastPaper(files, grade, subject, onProgress = () => {}) {
+async function analyzePastPaper(files, grade, subject, onProgress = () => {}, onSolved = () => {}) {
   // files = array of multer file objects (supports multiple pages photographed separately)
+
+  // Cap pages
+  if (files.length > MAX_PAPER_PAGES) {
+    console.warn('Too many paper pages (' + files.length + ') — capping at ' + MAX_PAPER_PAGES);
+    files = files.slice(0, MAX_PAPER_PAGES);
+  }
 
   // ── Step 1: Gemini reads ALL pages as PLAIN TEXT ──────────────────────────────
   let transcription = null;
@@ -685,28 +744,60 @@ async function analyzePastPaper(files, grade, subject, onProgress = () => {}) {
   if (process.env.GEMINI_API_KEY) {
     try {
       const pageCount = files.length;
-      onProgress('📖 Reading ' + pageCount + ' page' + (pageCount > 1 ? 's' : '') + ' with AI vision…');
+      const pdfs   = files.filter(f => f.mimetype === 'application/pdf');
+      const images = files.filter(f => f.mimetype !== 'application/pdf');
 
-      // Build image parts for ALL pages — Gemini handles them in one call
-      const imageParts = files.map(f => ({
+      onProgress('📖 Preparing ' + pageCount + ' page' + (pageCount > 1 ? 's' : '') + ' for AI reading…');
+
+      let allPageText = '';
+
+      // PDFs: read each one separately
+      for (let i = 0; i < pdfs.length; i++) {
+        onProgress('📄 Reading PDF page ' + (i+1) + ' of ' + pdfs.length + '…');
+        try {
+          const pt = await callGeminiVision([
+            { inline_data: { mime_type: 'application/pdf', data: pdfs[i].buffer.toString('base64') } },
+            { text: 'This is page ' + (i+1) + ' of an ICSE ' + grade + ' ' + subject + ' exam paper. Transcribe every question exactly as printed. Include question numbers, marks, all MCQ options. Plain text only.' }
+          ]);
+          if (pt) allPageText += (allPageText ? '\n\n' : '') + pt;
+        } catch(e) { console.error('PDF page', i+1, 'failed:', e.message); }
+        if (i < pdfs.length - 1) await sleep(1000);
+      }
+
+      // Images: compress then send all together
+      const compressedImages = images.length > 0
+        ? await Promise.all(images.map(f => compressImage(f)))
+        : [];
+
+      if (compressedImages.length > 0) {
+        onProgress('📖 AI vision reading ' + images.length + ' image page' + (images.length > 1 ? 's' : '') + '…');
+      }
+
+      // Build image parts for ALL pages — Gemini reads them together in one call
+      const imageParts = compressedImages.map(f => ({
         inline_data: {
-          mime_type: f.mimetype === 'application/pdf' ? 'application/pdf' : f.mimetype,
+          mime_type: f.mimetype,
           data: f.buffer.toString('base64')
         }
       }));
 
-      const ocrParts = [
-        ...imageParts,
-        {
-          text: 'You are reading ' + pageCount + ' page' + (pageCount > 1 ? 's' : '') + ' of an ICSE ' + grade + ' ' + subject + ' past question paper. '
-            + 'Transcribe EVERY question from ALL pages EXACTLY as printed. '
-            + 'Include: question numbers and sub-parts, marks allocations, full question text, all MCQ options A B C D, any given data or values. '
-            + 'If the paper spans multiple pages, combine them in order. '
-            + 'Output plain text only — no JSON, no markdown. Just the paper content.'
-        }
-      ];
-      transcription = await callGeminiVision(ocrParts, 3);
-      console.log('Gemini OCR result:', transcription ? transcription.length + ' chars' : 'failed');
+      onProgress('📖 AI vision reading all ' + pageCount + ' page' + (pageCount > 1 ? 's' : '') + '…');
+      // Read images (if any) as a combined call
+      if (imageParts.length > 0) {
+        try {
+          const imgText = await callGeminiVision([
+            ...imageParts,
+            { text: 'You are reading ' + imageParts.length + ' page' + (imageParts.length > 1 ? 's' : '') + ' of an ICSE ' + grade + ' ' + subject + ' exam paper. '
+                + 'Transcribe EVERY question exactly as printed. '
+                + 'Include: question numbers and sub-parts, marks, full question text, all MCQ options A B C D, any given data. '
+                + 'Pages are in order — combine into one complete paper. Plain text only.' }
+          ], 3);
+          if (imgText) allPageText += (allPageText ? '\n\n' : '') + imgText;
+        } catch(e) { console.error('Image OCR failed:', e.message); }
+      }
+
+      transcription = allPageText || null;
+      console.log('Gemini OCR result:', transcription ? transcription.length + ' chars from ' + pageCount + ' page(s)' : 'failed');
     } catch(err) {
       console.log('Gemini OCR failed:', err.message);
     }
@@ -751,6 +842,7 @@ async function analyzePastPaper(files, grade, subject, onProgress = () => {}) {
     solvedQuestions = solveData.solvedQuestions || solveData || [];
     if (Array.isArray(solveData)) solvedQuestions = solveData;
     console.log('Groq solved', solvedQuestions.length, 'questions from transcription');
+    onSolved(solvedQuestions, paperAnalysis); // stream solved questions immediately
 
   } else {
     // No vision — generate curriculum questions
@@ -845,60 +937,69 @@ app.post('/api/generate-all', upload.array('files', 10), async (req, res) => {
   const g = grade || 'Grade 8', s = subject || '', t = topic || '';
 
   try {
-    // ── Phase 1: Read each uploaded page with Gemini, stream as each completes ──
+    // ── Phase 1: Read each uploaded page with Gemini, stream progress per page ─
     let allExtracted = '';
 
     if (hasFiles && process.env.GEMINI_API_KEY) {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+      // Enforce page limit — tell user if pages were trimmed
+      const rawCount = files.length;
+      if (rawCount > MAX_NOTES_PAGES) {
+        files = files.slice(0, MAX_NOTES_PAGES);
         sseSend(res, 'progress', {
-          stage: 'reading',
-          message: '📖 Reading page ' + (i + 1) + ' of ' + files.length + '…',
-          page: i + 1,
-          total: files.length
+          stage: 'limit',
+          message: '⚠️ ' + rawCount + ' pages uploaded — reading first ' + MAX_NOTES_PAGES + ' only. Upload in smaller batches for more content.',
+          page: 0, total: MAX_NOTES_PAGES
         });
+      }
 
+      const pdfs   = files.filter(f => f.mimetype === 'application/pdf');
+      const images = files.filter(f => f.mimetype !== 'application/pdf');
+
+      // ── Read PDFs one at a time (streaming progress per PDF) ────────────────
+      for (let i = 0; i < pdfs.length; i++) {
+        sseSend(res, 'progress', { stage: 'reading', message: '📄 Reading PDF ' + (i+1) + ' of ' + pdfs.length + '…', page: i+1, total: files.length });
         try {
-          const pageText = await callGeminiVision([
-            {
-              inline_data: {
-                mime_type: file.mimetype === 'application/pdf' ? 'application/pdf' : file.mimetype,
-                data: file.buffer.toString('base64')
-              }
-            },
-            {
-              text: 'Read this page from an ICSE ' + g + ' ' + s + ' textbook. '
-                + 'Transcribe ALL visible text: headings, definitions, formulas, diagrams, tables, examples. '
-                + 'Plain text only. Start directly with the content.'
-            }
+          const pdfText = await callGeminiVision([
+            { inline_data: { mime_type: 'application/pdf', data: pdfs[i].buffer.toString('base64') } },
+            { text: 'ICSE ' + g + ' ' + s + ' textbook page' + (t ? ' about "' + t + '"' : '') + '. Transcribe ALL text: headings, definitions, formulas, diagrams, tables. Plain text only.' }
           ]);
-
-          if (pageText) {
-            allExtracted += (allExtracted ? '\n\n--- Page ' + (i+1) + ' ---\n\n' : '') + pageText;
-            sseSend(res, 'progress', {
-              stage: 'page_done',
-              message: '✅ Page ' + (i + 1) + ' read (' + pageText.length + ' chars)',
-              page: i + 1,
-              total: files.length,
-              preview: pageText.slice(0, 100)
-            });
+          if (pdfText) {
+            allExtracted += (allExtracted ? '\n\n--- PDF ' + (i+1) + ' ---\n\n' : '') + pdfText;
+            sseSend(res, 'progress', { stage: 'page_done', message: '✅ PDF ' + (i+1) + ' read (' + pdfText.length + ' chars)', page: i+1, total: files.length });
           } else {
-            sseSend(res, 'progress', { stage: 'page_failed', message: '⚠️ Could not read page ' + (i+1), page: i+1 });
+            sseSend(res, 'progress', { stage: 'page_failed', message: '⚠️ Could not read PDF ' + (i+1), page: i+1 });
           }
         } catch(err) {
-          sseSend(res, 'progress', { stage: 'page_failed', message: '⚠️ Page ' + (i+1) + ': ' + err.message, page: i+1 });
+          sseSend(res, 'progress', { stage: 'page_failed', message: '⚠️ PDF ' + (i+1) + ': ' + err.message, page: i+1 });
         }
+        if (i < pdfs.length - 1) await sleep(1200);
+      }
 
-        // Natural gap between pages — gives Gemini rate limit breathing room
-        if (i < files.length - 1) await sleep(1500);
+      // ── Read images: compress then send ALL together ─────────────────────────
+      if (images.length > 0) {
+        sseSend(res, 'progress', { stage: 'reading', message: '🗜️ Compressing ' + images.length + ' image' + (images.length>1?'s':'') + '…', page: pdfs.length + 1, total: files.length });
+        const compressed = await Promise.all(images.map(f => compressImage(f)));
+        sseSend(res, 'progress', { stage: 'reading', message: '📖 AI reading ' + images.length + ' image' + (images.length>1?'s':'') + ' together…', page: pdfs.length + 1, total: files.length });
+        const imageParts = compressed.map(f => ({ inline_data: { mime_type: f.mimetype, data: f.buffer.toString('base64') } }));
+        try {
+          const imageText = await callGeminiVision([
+            ...imageParts,
+            { text: 'ICSE ' + g + ' ' + s + ' textbook — ' + images.length + ' pages' + (t ? ' about "' + t + '"' : '') + '. Transcribe ALL text from ALL pages: headings, definitions, formulas, diagrams, tables. If pages overlap include content once. Plain text only.' }
+          ]);
+          if (imageText) {
+            allExtracted += (allExtracted ? '\n\n--- Pages ---\n\n' : '') + imageText;
+            // Mark each image page as done
+            images.forEach((_, i) => sseSend(res, 'progress', { stage: 'page_done', message: '✅ Page ' + (pdfs.length + i + 1) + ' read', page: pdfs.length + i + 1, total: files.length }));
+          } else {
+            sseSend(res, 'progress', { stage: 'page_failed', message: '⚠️ Could not read images', page: pdfs.length + 1 });
+          }
+        } catch(err) {
+          sseSend(res, 'progress', { stage: 'page_failed', message: '⚠️ Images: ' + err.message, page: pdfs.length + 1 });
+        }
       }
 
       if (allExtracted) {
-        sseSend(res, 'progress', {
-          stage: 'all_pages_read',
-          message: '📚 All ' + files.length + ' pages read. Generating notes…',
-          totalChars: allExtracted.length
-        });
+        sseSend(res, 'progress', { stage: 'all_pages_read', message: '📚 All ' + files.length + ' page' + (files.length>1?'s':'') + ' read (' + allExtracted.length + ' chars). Generating notes…', totalChars: allExtracted.length });
       }
     } else if (hasFiles && !process.env.GEMINI_API_KEY) {
       sseSend(res, 'progress', { stage: 'no_vision', message: '⚠️ GEMINI_API_KEY not set — generating from topic name only' });
@@ -984,10 +1085,16 @@ app.post('/api/analyze-paper', upload.array('paper', 20), async (req, res) => {
       total: pageCount
     });
 
-    const result = await analyzePastPaper(files, g, s, (msg) => {
-      sseSend(res, 'progress', { stage: 'solving', message: msg });
-    });
+    const result = await analyzePastPaper(files, g, s,
+      // onProgress
+      (msg) => { sseSend(res, 'progress', { stage: 'solving', message: msg }); },
+      // onSolved — stream solved questions the moment Groq finishes them
+      (solved, analysis) => {
+        sseSend(res, 'solved', { solvedQuestions: solved, paperAnalysis: analysis, transcribed: true });
+      }
+    );
 
+    // Stream generated questions as second wave
     sseSend(res, 'analysis', { ...result, success: true });
     sseSend(res, 'done', { success: true });
   } catch(err) {
