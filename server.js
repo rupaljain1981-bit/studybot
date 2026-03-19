@@ -25,7 +25,7 @@ const upload = multer({
 // ── Gemini helper ─────────────────────────────────────────────────────────────
 async function callGemini(prompt, fileParts = [], useSearch = false) {
   const model = genAI.getGenerativeModel({
-    model: 'gemini-1.5-flash',
+    model: 'gemini-1.5-flash-latest',
     tools: useSearch ? [{ googleSearch: {} }] : []
   });
   const result = await model.generateContent([...fileParts, { text: prompt }]);
