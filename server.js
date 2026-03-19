@@ -184,167 +184,144 @@ function safeJSON(raw, fallback = {}) {
 
 // ── NOTES PROMPT ──────────────────────────────────────────────────────────────
 function buildNotesPrompt(grade, subject, topic, extractedText = null) {
-  // If we have extracted text from uploaded pages, use it as the primary source
-  const sourceInstr = extractedText
-    ? `The student has uploaded ${extractedText.length > 2000 ? 'multiple pages of' : 'a page from'} their ICSE ${grade} ${subject} textbook. Here is the EXACT content extracted from those pages:
-
----TEXTBOOK CONTENT START---
-${extractedText.slice(0, 8000)}
----TEXTBOOK CONTENT END---
-
-Base your notes STRICTLY on this textbook content. Preserve the exact terminology, definitions, formulas, and examples from the book. Supplement with ICSE curriculum knowledge only where the text is unclear or incomplete.`
-    : `Create comprehensive notes based on the ICSE ${grade} ${subject} curriculum for the topic "${topic}".`;
-
-  const type = subjectType(subject);
-
+  const type      = subjectType(subject);
   const isBiology = subject === 'Biology';
 
+  // ── When real book content is uploaded: use a SHORT focused prompt ───────────
+  // The HTML template would push book content out of Groq context.
+  // Instead: just ask Groq to reformat the extracted text into notes HTML.
+  if (extractedText) {
+    const subjectTips = isBiology
+      ? 'For Biology: create diagram-box blocks (numbered parts + functions), experiment-block, comparison tables.'
+      : type === 'science'
+      ? 'For Physics/Chemistry: create derivation-block, numerical-block (Given/Formula/Working/Answer), SI units table, experiment-block.'
+      : type === 'maths'
+      ? 'For Maths: create numerical-block solved examples showing every step. No experiment blocks.'
+      : type === 'humanity'
+      ? 'For History/Geography/Economics: create timeline tables, cause-effect tables, key-term definitions.'
+      : '';
+
+    return `You are an expert ICSE ${grade} ${subject} teacher creating revision notes from a student\'s uploaded textbook pages.
+
+=== UPLOADED TEXTBOOK CONTENT ===
+${extractedText.slice(0, 10000)}
+=== END OF CONTENT ===
+
+Reformat the content above into clear ICSE revision notes as HTML.
+${subjectTips}
+
+Rules:
+- Use ONLY the content from the upload above — do not add unrelated content
+- Preserve all definitions, formulas, examples and facts exactly as in the book
+- Keep exact ICSE terminology from the book
+- For any diagram mentioned: create a diagram-box with numbered labels and functions
+- For any table in the book: create an HTML table
+- For formulas: use formula-box elements
+- For experiments: use experiment-block elements
+- For derivations: use derivation-block elements
+- For solved numericals: use numerical-block elements
+
+Return ONLY this HTML (no markdown, no backticks):
+
+<div class="notes-content">
+  <section class="key-concepts">
+    <h2>\uD83D\uDD11 Key Concepts from Your Textbook</h2>
+    <ul>
+      <li><strong>[exact term from upload]:</strong> [exact definition from upload]</li>
+    </ul>
+  </section>
+  <section class="detailed-notes">
+    <h2>\uD83D\uDCDA Detailed Notes</h2>
+    [Reformat each topic and subtopic from the uploaded content using proper HTML elements]
+  </section>
+  <section class="important-formulas">
+    <h2>\uD83D\uDCD0 Key Formulas and Definitions</h2>
+    <div class="formula-box"><div class="formula-title">Formula name</div><div class="formula-eq">formula from book</div></div>
+  </section>
+  <section class="quick-summary">
+    <h2>\u26A1 Quick Revision Points</h2>
+    <ul>
+      <li>[key point from uploaded content]</li>
+    </ul>
+  </section>
+</div>
+
+Replace every placeholder with ACTUAL content from the uploaded pages. Return ONLY the HTML.`;
+  }
+
+  // ── No files — generate from ICSE curriculum knowledge ──────────────────────
   const biologyExtra = `
-BIOLOGY — INCLUDE ALL OF THESE (mandatory):
-- DIAGRAMS: Draw at least 2 labelled diagrams relevant to ${topic}. For EACH diagram use the diagram-box format with numbered labels and functions. Biology ALWAYS requires diagrams.
-- Definitions: every ICSE Biology term defined precisely
-- Classification/Types: structured tables showing classification
-- Scientist names: who discovered/described each concept, year
-- ICSE practical: Aim, Materials, Procedure, Observation, Result
-- Comparison tables (e.g. mitosis vs meiosis, aerobic vs anaerobic)
-- Functions of each labelled part must be stated`;
+BIOLOGY — INCLUDE ALL (mandatory):
+- At least 2 labelled diagram-box blocks with numbered parts and functions
+- ICSE Biology definitions, classification tables, scientist names with years
+- ICSE practical experiment block: Aim, Materials, Procedure, Observation, Result
+- Comparison table (e.g. mitosis vs meiosis, aerobic vs anaerobic)`;
 
   const scienceExtra = `
 PHYSICS/CHEMISTRY — INCLUDE ALL:
-- Every quantity: symbol, SI unit, unit symbol, formula
-- Scientist name, nationality, year for each law/principle
-- Full step-by-step derivations (show each algebraic step)
-- Minimum 2 solved ICSE-style numericals (Given/Find/Formula/Working/Answer)
-- ICSE practical experiment: Aim, Apparatus, Procedure, Observation, Result, Precautions
-- Comparison table for related concepts
-- DIAGRAM: at least 1 labelled diagram using the diagram-box format with numbered parts`;
+- Every quantity: symbol, SI unit, formula in a table
+- Scientist name, nationality, year for each law
+- Full step-by-step derivation-block
+- At least 2 numerical-blocks (Given/Formula/Working/Answer)
+- ICSE experiment-block: Aim, Apparatus, Procedure, Observation, Result
+- At least 1 diagram-box with numbered parts`;
 
   const mathsExtra = `
 MATHEMATICS — INCLUDE ALL:
 - Every formula/theorem with proof
-- Minimum 3 solved ICSE board-style problems showing every step
-- Common mistakes students make in exams
-- ICSE board exam shortcuts and tips`;
+- At least 3 numerical-blocks (solved problems showing every step)
+- Common mistakes and ICSE exam tips`;
 
   const humanityExtra = `
-HISTORY & CIVICS / GEOGRAPHY / ECONOMICS — INCLUDE ALL:
-- Key dates, events, people, places in a structured timeline or table
-- Causes and effects clearly separated
-- Significance and impact sections
-- Comparison tables where relevant (e.g. Lok Sabha vs Rajya Sabha)
-- Maps / diagrams described in text
-- ICSE source-based question format notes (how to analyse a source)
+HISTORY/GEOGRAPHY/ECONOMICS — INCLUDE ALL:
+- Key dates and events table (Year | Event | Significance)
+- Causes and effects table
+- Comparison table where relevant
 - Key terms defined exactly as per ICSE textbook`;
 
-  const extras = type==='biology' ? biologyExtra : type==='science' ? scienceExtra : type==='maths' ? mathsExtra : type==='humanity' ? humanityExtra : '';
+  const extras = isBiology ? biologyExtra
+    : type === 'science'   ? scienceExtra
+    : type === 'maths'     ? mathsExtra
+    : type === 'humanity'  ? humanityExtra
+    : '';
 
   return `ICSE ${grade} | ${subject} | Topic: ${topic}
-
-${sourceInstr}
-
 ${extras}
 
-Create comprehensive, exam-ready study notes strictly following the ICSE ${grade} ${subject} syllabus.
-${extractedText ? 'Use the uploaded textbook content above as your PRIMARY source. Extract and present the exact content from the book.' : ''}
-Return ONLY this HTML — replace every placeholder with real ICSE content. No markdown, no backticks:
+Create comprehensive exam-ready ICSE revision notes for "${topic}".
+Return ONLY valid HTML (no markdown, no backticks):
 
 <div class="notes-content">
   <section class="key-concepts">
-    <h2>🔑 Key Concepts</h2>
+    <h2>\uD83D\uDD11 Key Concepts</h2>
     <ul><li><strong>Term:</strong> ICSE definition</li><li><strong>Term:</strong> definition</li></ul>
   </section>
   <section class="detailed-notes">
-    <h2>📚 Detailed Notes</h2>
-    <h3>Subtopic 1</h3><p>Detailed ICSE-syllabus explanation...</p>
-    ${type==='science' ? `
+    <h2>\uD83D\uDCDA Detailed Notes</h2>
+    <h3>Main subtopic</h3><p>Detailed ICSE explanation...</p>
     <h3>Key Laws / Principles</h3>
-    <p><strong>Law Name (Scientist, Nationality, Year):</strong> Exact ICSE statement.</p>
-    <h3>SI Units &amp; Formulae</h3>
-    <table class="notes-table"><thead><tr><th>Quantity</th><th>Symbol</th><th>SI Unit</th><th>Symbol</th><th>Formula</th></tr></thead>
-    <tbody><tr><td>quantity</td><td>sym</td><td>unit</td><td>sym</td><td>formula</td></tr></tbody></table>
-    <h3>Derivation</h3>
-    <div class="derivation-block"><div class="derivation-title">Derivation of [formula]</div>
-    <div class="derivation-steps"><div class="d-step"><span class="d-num">1</span><span class="d-text">Starting point</span></div>
-    <div class="d-step"><span class="d-num">2</span><span class="d-text">Step 2</span></div>
-    <div class="d-step"><span class="d-num">3</span><span class="d-text">Final step</span></div></div>
-    <div class="derivation-result">∴ Final formula with SI unit</div></div>
-    <h3>Solved Numericals</h3>
-    <div class="numerical-block"><div class="num-title">Numerical 1</div>
-    <div class="num-given"><strong>Given:</strong> values with units</div>
-    <div class="num-find"><strong>To Find:</strong> quantity</div>
-    <div class="num-formula"><strong>Formula:</strong> formula</div>
-    <div class="num-working"><strong>Working:</strong> step-by-step calculation</div>
-    <div class="num-answer">Answer: value with SI unit</div></div>
-    <h3>Comparison Table</h3>
-    <table class="notes-table"><thead><tr><th>Basis</th><th>Concept A</th><th>Concept B</th></tr></thead>
-    <tbody><tr><td>Definition</td><td>def A</td><td>def B</td></tr><tr><td>SI Unit</td><td>unit</td><td>unit</td></tr><tr><td>Formula</td><td>formula</td><td>formula</td></tr><tr><td>Example</td><td>eg</td><td>eg</td></tr></tbody></table>
-    <h3>🔬 ICSE Practical Experiment</h3>
-    <div class="experiment-block">
-    <div class="exp-row"><span class="exp-label">Aim:</span><span class="exp-content">aim</span></div>
-    <div class="exp-row"><span class="exp-label">Apparatus:</span><span class="exp-content">list</span></div>
-    <div class="exp-row"><span class="exp-label">Procedure:</span><ol class="exp-steps"><li>step 1</li><li>step 2</li><li>step 3</li></ol></div>
-    <div class="exp-row"><span class="exp-label">Observation:</span><span class="exp-content">observation</span></div>
-    <div class="exp-row"><span class="exp-label">Result:</span><span class="exp-content">conclusion</span></div>
-    <div class="exp-row"><span class="exp-label">Precautions:</span><span class="exp-content">precautions</span></div>
-    </div>
-    <h3>Labelled Diagram</h3>
-    <div class="diagram-box"><div class="diagram-title">Diagram: name</div>
-    <div class="diagram-labels">
-    <div class="diagram-part"><span class="part-num">1</span><span class="part-name">Part</span><span class="part-desc">— function</span></div>
-    <div class="diagram-part"><span class="part-num">2</span><span class="part-name">Part</span><span class="part-desc">— function</span></div>
-    </div></div>` : ''}
-    ${type==='maths' ? `
-    <h3>Solved Examples</h3>
-    <div class="numerical-block"><div class="num-title">Example 1</div>
-    <div class="num-given"><strong>Question:</strong> ICSE board style problem</div>
-    <div class="num-working"><strong>Solution:</strong> step 1 → step 2 → step 3</div>
-    <div class="num-answer">Answer: final answer</div></div>` : ''}
-    ${type==='humanity' ? `
-    <h3>Key Dates &amp; Events</h3>
-    <table class="notes-table"><thead><tr><th>Year</th><th>Event</th><th>Significance</th></tr></thead>
-    <tbody><tr><td>year</td><td>event</td><td>significance</td></tr></tbody></table>
-    <h3>Causes &amp; Effects</h3>
-    <table class="notes-table"><thead><tr><th>Causes</th><th>Effects / Consequences</th></tr></thead>
-    <tbody><tr><td>cause 1</td><td>effect 1</td></tr><tr><td>cause 2</td><td>effect 2</td></tr></tbody></table>
-    <h3>Comparison</h3>
-    <table class="notes-table"><thead><tr><th>Basis</th><th>Concept A</th><th>Concept B</th></tr></thead>
-    <tbody><tr><td>basis</td><td>A</td><td>B</td></tr></tbody></table>` : ''}
+    <p><strong>Law Name (Scientist, Country, Year):</strong> Exact ICSE statement of the law.</p>
   </section>
   <section class="memory-tricks">
-    <h2>💡 Memory Tricks</h2>
+    <h2>\uD83D\uDCA1 Memory Tricks</h2>
     <div class="mnemonic-row">
       <div class="mnemonic-box"><span class="mnemonic-letter">A</span><span class="mnemonic-word">word</span></div>
       <div class="mnemonic-box"><span class="mnemonic-letter">B</span><span class="mnemonic-word">word</span></div>
-      <div class="mnemonic-box"><span class="mnemonic-letter">C</span><span class="mnemonic-word">word</span></div>
     </div>
-    <p><strong>Tip:</strong> another memory technique</p>
+    <p><strong>Tip:</strong> memory technique</p>
   </section>
   <section class="important-formulas">
-    <h2>📐 Key Formulas / Definitions</h2>
-    <div class="formula-box"><div class="formula-title">Name</div><div class="formula-eq">formula or definition</div></div>
+    <h2>\uD83D\uDCD0 Key Formulas / Definitions</h2>
     <div class="formula-box"><div class="formula-title">Name</div><div class="formula-eq">formula or definition</div></div>
   </section>
   <section class="quick-summary">
-    <h2>⚡ Quick Revision Summary</h2>
-    <ul><li>Point 1</li><li>Point 2</li><li>Point 3</li><li>Point 4</li><li>Point 5</li></ul>
-  </section>
-  <section class="infographic">
-    <h2>🗺️ Concept Map</h2>
-    <div class="concept-map">
-      <div class="cm-center">${topic}</div>
-      <div class="cm-branches">
-        <div class="cm-branch"><div class="cm-node cm-blue">Branch 1</div><div class="cm-children"><div class="cm-child">detail A</div><div class="cm-child">detail B</div></div></div>
-        <div class="cm-branch"><div class="cm-node cm-green">Branch 2</div><div class="cm-children"><div class="cm-child">detail C</div><div class="cm-child">detail D</div></div></div>
-        <div class="cm-branch"><div class="cm-node cm-amber">Branch 3</div><div class="cm-children"><div class="cm-child">detail E</div></div></div>
-        <div class="cm-branch"><div class="cm-node cm-coral">Branch 4</div><div class="cm-children"><div class="cm-child">detail F</div></div></div>
-      </div>
-    </div>
+    <h2>\u26A1 Quick Revision Summary</h2>
+    <ul><li>Key point 1</li><li>Key point 2</li><li>Key point 3</li><li>Key point 4</li><li>Key point 5</li></ul>
   </section>
 </div>
-Replace ALL placeholder content with real accurate ICSE ${grade} ${subject} content about "${topic}". Return ONLY the HTML.`;
+Replace ALL placeholder content with real ICSE ${grade} ${subject} content about "${topic}". Return ONLY the HTML.`;
 }
 
-// ── QUESTION PROMPTS (subject-aware) ──────────────────────────────────────────
 function buildQPromptA(grade, subject, topic) {
   const type = subjectType(subject);
 
@@ -655,14 +632,17 @@ Generate 15 varied questions. Replace ALL placeholders with real ${grade} ${subj
 }
 // ── Generate questions ────────────────────────────────────────────────────────
 async function generateQuestions(grade, subject, topic, extractedText = null) {
-  // If we have textbook content, tell question prompts to base questions on it
-  const contentNote = extractedText
-    ? `\n\nIMPORTANT: Base all questions on this uploaded textbook content:\n---\n${extractedText.slice(0, 3000)}\n---`
+  // Put extracted text FIRST so it's seen before the long prompts (not ignored at end)
+  const pre = extractedText
+    ? 'The student uploaded pages from their ICSE ' + grade + ' ' + subject + ' textbook about "' + topic + '".\n'
+      + 'Base ALL questions on this exact content from the book:\n---\n'
+      + extractedText.slice(0, 4000)
+      + '\n---\n\n'
     : '';
   const [rawA, rawB, rawC] = await Promise.all([
-    callGroq(buildQPromptA(grade, subject, topic) + contentNote, 2000),
-    callGroq(buildQPromptB(grade, subject, topic) + contentNote, 1600),
-    callGroq(buildQPromptC(grade, subject, topic) + contentNote, 3000)
+    callGroq(pre + buildQPromptA(grade, subject, topic), 2200),
+    callGroq(pre + buildQPromptB(grade, subject, topic), 1800),
+    callGroq(pre + buildQPromptC(grade, subject, topic), 3200)
   ]);
 
   const questions = { mcq:[], fillinblanks:[], truefalse:[], oddonesout:[], assertionreason:[], shortanswer:[], longanswer:[] };
@@ -708,7 +688,13 @@ app.post('/api/generate-all', upload.array('files', 10), async (req, res) => {
 
     const notes = notesRaw.replace(/```html|```/g,'').trim();
     const bank  = safeJSON(bankRaw, { questions:[] });
-    res.json({ success:true, notes, questions, bank, fromTopic:!hasFiles });
+    const visionUsed = hasFiles && !!extractedText;
+    res.json({
+      success: true, notes, questions, bank,
+      fromTopic: !hasFiles,
+      visionUsed,
+      filesRead: hasFiles ? files.length : 0
+    });
   } catch(err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
