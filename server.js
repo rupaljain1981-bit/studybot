@@ -3,6 +3,7 @@ const express = require('express');
 const multer  = require('multer');
 const cors    = require('cors');
 const path    = require('path');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -38,7 +39,77 @@ function subjectType(s) {
   return 'general';
 }
 
-// ── Groq helper ───────────────────────────────────────────────────────────────
+// ── Gemini vision client (for reading uploaded images/PDFs) ───────────────────
+const geminiClient = process.env.GEMINI_API_KEY
+  ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+  : null;
+
+// Extract text from uploaded files using Gemini vision
+// Handles multiple pages photographed from a handheld camera in one consolidated pass
+async function callGeminiWithRetry(model, parts, maxAttempts = 3) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const result = await model.generateContent(parts);
+      return result.response.text();
+    } catch(err) {
+      const msg = err.message || '';
+      const isLimit = msg.includes('429') || msg.includes('quota') || msg.includes('RATE') || msg.includes('exhausted');
+      if (isLimit && attempt < maxAttempts) {
+        const wait = 3000 * attempt; // 3s, 6s
+        console.log(`Gemini rate limit — retrying in ${wait}ms (attempt ${attempt+1}/${maxAttempts})`);
+        await sleep(wait);
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+async function extractTextFromFiles(files, grade, subject, topic) {
+  if (!files || files.length === 0) return null;
+
+  if (!geminiClient) {
+    console.warn('GEMINI_API_KEY not set — cannot read uploaded images. Falling back to topic-only mode.');
+    return null;
+  }
+
+  try {
+    const model = geminiClient.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+    // Build all image/PDF parts — handle multiple pages from a camera
+    const imageParts = files.map(file => ({
+      inlineData: {
+        mimeType: file.mimetype === 'application/pdf' ? 'application/pdf' : file.mimetype,
+        data: file.buffer.toString('base64')
+      }
+    }));
+
+    const pageCount = files.length;
+    const prompt = `You are reading ${pageCount} page${pageCount > 1 ? 's' : ''} from an ICSE ${grade} ${subject} textbook.
+${topic ? `The topic is: "${topic}"` : ''}
+
+These pages may have been photographed with a handheld camera and could be slightly blurry, angled, or partially overlapping. Do your best to read all visible text accurately.
+
+Your task:
+1. Read ALL text from ALL ${pageCount} page${pageCount > 1 ? 's' : ''} carefully
+2. Preserve all headings, subheadings, definitions, formulas, diagrams descriptions, tables, and numbered lists
+3. If pages overlap or repeat content, include it only once
+4. Transcribe mathematical formulas and equations accurately using text notation (e.g. F = ma, E = mc²)
+5. Note diagram labels and descriptions (e.g. "Diagram: Parts of a cell — 1. Cell membrane 2. Nucleus...")
+6. Maintain the logical flow and structure of the original content
+
+Provide a clean, consolidated transcription of ALL the textbook content across all pages. Start directly with the content — no preamble.`;
+
+    const extracted = await callGeminiWithRetry(model, [...imageParts, { text: prompt }]);
+    console.log(`Gemini extracted ${extracted.length} chars from ${pageCount} file(s)`);
+    return extracted;
+  } catch(err) {
+    console.error('Gemini vision error:', err.message);
+    return null; // Fall back to topic-only if vision fails
+  }
+}
+
+// ── Groq text helper ──────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `You are a senior ICSE/ISC curriculum expert, examiner, and question paper setter with 20+ years of experience setting and marking actual ICSE board papers.
 CRITICAL RULES:
 1. Follow ICSE/ISC syllabus and exam paper patterns EXACTLY — not CBSE, not international boards.
@@ -99,7 +170,6 @@ async function callGroq(prompt, maxTokens = 2048) {
     }
   }
 }
-
 function safeJSON(raw, fallback = {}) {
   try {
     const cleaned = raw.replace(/```json|```/g,'').trim();
@@ -113,7 +183,18 @@ function safeJSON(raw, fallback = {}) {
 }
 
 // ── NOTES PROMPT ──────────────────────────────────────────────────────────────
-function buildNotesPrompt(grade, subject, topic) {
+function buildNotesPrompt(grade, subject, topic, extractedText = null) {
+  // If we have extracted text from uploaded pages, use it as the primary source
+  const sourceInstr = extractedText
+    ? `The student has uploaded ${extractedText.length > 2000 ? 'multiple pages of' : 'a page from'} their ICSE ${grade} ${subject} textbook. Here is the EXACT content extracted from those pages:
+
+---TEXTBOOK CONTENT START---
+${extractedText.slice(0, 8000)}
+---TEXTBOOK CONTENT END---
+
+Base your notes STRICTLY on this textbook content. Preserve the exact terminology, definitions, formulas, and examples from the book. Supplement with ICSE curriculum knowledge only where the text is unclear or incomplete.`
+    : `Create comprehensive notes based on the ICSE ${grade} ${subject} curriculum for the topic "${topic}".`;
+
   const type = subjectType(subject);
 
   const isBiology = subject === 'Biology';
@@ -158,9 +239,13 @@ HISTORY & CIVICS / GEOGRAPHY / ECONOMICS — INCLUDE ALL:
   const extras = type==='biology' ? biologyExtra : type==='science' ? scienceExtra : type==='maths' ? mathsExtra : type==='humanity' ? humanityExtra : '';
 
   return `ICSE ${grade} | ${subject} | Topic: ${topic}
+
+${sourceInstr}
+
 ${extras}
 
 Create comprehensive, exam-ready study notes strictly following the ICSE ${grade} ${subject} syllabus.
+${extractedText ? 'Use the uploaded textbook content above as your PRIMARY source. Extract and present the exact content from the book.' : ''}
 Return ONLY this HTML — replace every placeholder with real ICSE content. No markdown, no backticks:
 
 <div class="notes-content">
@@ -503,12 +588,38 @@ function buildBankPrompt(grade, subject, topic) {
 
 // ── PAST PAPER ANALYSIS ───────────────────────────────────────────────────────
 async function analyzePastPaper(fileBuffer, mimeType, grade, subject) {
-  // Groq does not support image vision, so we generate ICSE-typical solved questions
-  // and new questions in parallel based on grade/subject.
+  // Step 0: Use Gemini to transcribe the paper if possible
+  let transcription = null;
+  if (geminiClient) {
+    try {
+      const model = geminiClient.getGenerativeModel({ model: 'gemini-1.5-flash' });
+            transcription = await callGeminiWithRetry(model, [
+        {
+          inlineData: {
+            mimeType: mimeType === 'application/pdf' ? 'application/pdf' : mimeType,
+            data: fileBuffer.toString('base64')
+          }
+        },
+        { text: `This is an ICSE ${grade} ${subject} past question paper. Transcribe EVERY question exactly as written, including:\n- Question numbers and sub-parts (e.g. Q1(a), Q1(b))\n- All marks allocations in brackets\n- Full question text including any data, diagrams described, or formulae\n- All options for MCQs\n- Any instructions at the start of sections\n\nTranscribe completely and accurately. Include all sections.` }
+      ]);      console.log(`Gemini transcribed past paper: ${transcription.length} chars`);
+    } catch(err) {
+      console.log('Gemini paper transcription failed:', err.message, '— using curriculum-based generation');
+    }
+  }
+
+  const paperContext = transcription
+    ? `Here is the EXACT transcription of the uploaded past paper:
+
+${transcription}
+
+`
+    : `Generate a typical ICSE ${grade} ${subject} board paper with realistic questions.
+
+`;
 
   const extractPrompt = `You are an ICSE ${grade} ${subject} examiner and model answer writer.
-A student has uploaded a past ICSE ${grade} ${subject} board paper.
-Generate a REALISTIC set of questions that would appear in a typical ICSE ${grade} ${subject} paper.
+
+${paperContext}${transcription ? 'Solve EVERY question from the transcribed paper above with complete model answers.' : 'Generate a REALISTIC set of questions'} that would appear in a typical ICSE ${grade} ${subject} paper.
 For EVERY question provide a COMPLETE model answer with full working.
 For numericals: show Given / Formula / Working step by step / Answer with SI unit.
 For long answers: give a full structured model answer.
@@ -543,11 +654,15 @@ Generate 15 varied questions. Replace ALL placeholders with real ${grade} ${subj
   };
 }
 // ── Generate questions ────────────────────────────────────────────────────────
-async function generateQuestions(grade, subject, topic) {
+async function generateQuestions(grade, subject, topic, extractedText = null) {
+  // If we have textbook content, tell question prompts to base questions on it
+  const contentNote = extractedText
+    ? `\n\nIMPORTANT: Base all questions on this uploaded textbook content:\n---\n${extractedText.slice(0, 3000)}\n---`
+    : '';
   const [rawA, rawB, rawC] = await Promise.all([
-    callGroq(buildQPromptA(grade, subject, topic), 2000),
-    callGroq(buildQPromptB(grade, subject, topic), 1600),
-    callGroq(buildQPromptC(grade, subject, topic), 3000)
+    callGroq(buildQPromptA(grade, subject, topic) + contentNote, 2000),
+    callGroq(buildQPromptB(grade, subject, topic) + contentNote, 1600),
+    callGroq(buildQPromptC(grade, subject, topic) + contentNote, 3000)
   ]);
 
   const questions = { mcq:[], fillinblanks:[], truefalse:[], oddonesout:[], assertionreason:[], shortanswer:[], longanswer:[] };
@@ -573,9 +688,21 @@ app.post('/api/generate-all', upload.array('files', 10), async (req, res) => {
     if (!topic && !hasFiles) return res.status(400).json({ error: 'Enter a topic or upload files.' });
 
     const g = grade || 'Grade 8', s = subject || '', t = topic || '';
+
+    // If files uploaded — use Gemini vision to extract text from all pages first
+    let extractedText = null;
+    if (hasFiles) {
+      extractedText = await extractTextFromFiles(files, g, s, t);
+      if (extractedText) {
+        console.log(`Using extracted content (${extractedText.length} chars) from ${files.length} uploaded file(s)`);
+      } else {
+        console.log('Vision extraction failed or unavailable — using topic-only mode');
+      }
+    }
+
     const [notesRaw, questions, bankRaw] = await Promise.all([
-      callGroq(buildNotesPrompt(g, s, t), 6000),
-      generateQuestions(g, s, t),
+      callGroq(buildNotesPrompt(g, s, t, extractedText), 6000),
+      generateQuestions(g, s, t, extractedText),
       callGroq(buildBankPrompt(g, s, t), 4000)
     ]);
 
@@ -682,21 +809,23 @@ ICSE REQUIREMENTS:
 - Opening: must immediately grab attention — start with a quote, question, or vivid image (NOT "In this essay I will...")
 - Closing: memorable final line that brings the essay full circle
 
-After the essay, add these THREE sections using EXACTLY these markers on their own lines:
+Structure your response using EXACTLY these markers on their own lines — in this exact order:
 
 [ESSAY]
-(complete essay here)
+Write the complete essay here — nothing else in this section.
 
 [WORD COUNT]
 Approximately X words
 
 [VOCABULARY HIGHLIGHTS]
-1. word — meaning and why this word works well here
-2. word — meaning and why this word works well here  
-3. word — meaning and why this word works well here
+1. word — meaning — why it works here
+2. word — meaning — why it works here
+3. word — meaning — why it works here
 
 [EXAMINER TIP]
-One specific ICSE examiner tip for scoring full marks on a ${etype} essay.`;
+One specific ICSE examiner tip for scoring full marks on a ${etype} essay.
+
+IMPORTANT: Start your response with [ESSAY] on the very first line.`;
 
     const result = await callGroq(prompt, 2500);
     res.json({ success: true, essay: result });
