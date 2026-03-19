@@ -526,10 +526,10 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
     <!-- Tabs for extracted vs generated -->
     <div style="display:flex;gap:10px;margin-bottom:1rem;flex-wrap:wrap">
       <button class="btn btn-outline" id="ppTab1" onclick="showPPTab('extracted')" style="border-color:#9b59b6;color:#9b59b6">📋 Extracted Questions</button>
-      <button class="btn" id="ppTab2" onclick="showPPTab('generated')" style="background:#9b59b6;color:white">✨ Generated Similar Questions</button>
+      <button class="btn btn-outline" id="ppTab2" onclick="showPPTab('generated')" style="background:transparent;color:#9b59b6;border:1.5px solid #9b59b6">✨ Generated Similar Questions</button>
       <button class="btn btn-pdf" onclick="printPaperAnalysis()">🖨️ Print as PDF</button>
     </div>
-    <div id="pp-extracted" style="display:none"></div>
+    <div id="pp-solved" style="display:none"></div>
     <div id="pp-generated"></div>
   </div>
 </div>
@@ -820,7 +820,7 @@ function buildQCards(type, qs, offset) {
       body=`<div class="q-text">${q.q}</div><span class="q-marks">${q.marks||5} marks</span>`;
       answer=formatAnswer(q.a||'');
     }
-    return `<div class="q-card" onclick="this.classList.toggle('open')">
+    return `<div class="q-card" onclick="this.classList.toggle(&#39;open&#39;)">
       <div class="q-num">Q${offset+i+1}</div>${body}
       <div class="q-answer">${answer}</div>
     </div>`;
@@ -869,7 +869,7 @@ async function analyzePaper() {
   if (!ppFile) { showToast('Please upload a past paper first!', true); return; }
   const btn = document.getElementById('ppBtn');
   btn.disabled = true; btn.textContent = '⏳ Analysing paper…';
-  showLoader('🔍 Reading past paper and generating similar questions…');
+  showLoader('🔍 Solving paper questions and generating similar questions…');
 
   const fd = new FormData();
   fd.append('paper', ppFile);
@@ -882,48 +882,49 @@ async function analyzePaper() {
     if (!data.success) throw new Error(data.error);
     ppData = data;
 
-    // Show analysis
+    // Show analysis summary
     const pa = data.paperAnalysis || {};
-    document.getElementById('pp-analysis').innerHTML = `
-      <div class="exp-row"><span class="exp-label" style="color:#6c3483">Paper Summary</span><span class="exp-content">${document.getElementById('ppLabel').value || 'Uploaded Paper'}</span></div>
-      <div class="exp-row"><span class="exp-label" style="color:#6c3483">Total Marks</span><span class="exp-content">${pa.totalMarks || 'N/A'}</span></div>
-      <div class="exp-row"><span class="exp-label" style="color:#6c3483">Sections</span><span class="exp-content">${(pa.sections||[]).join(' · ') || 'N/A'}</span></div>
-      <div class="exp-row"><span class="exp-label" style="color:#6c3483">Topics Covered</span><span class="exp-content">${(pa.topicsCovered||[]).join(', ') || 'N/A'}</span></div>
-      <div class="exp-row"><span class="exp-label" style="color:#6c3483">Question Types</span><span class="exp-content">${(pa.questionTypes||[]).join(', ') || 'N/A'}</span></div>
-      <div class="exp-row"><span class="exp-label" style="color:#6c3483">Difficulty</span><span class="exp-content">${pa.difficultyObservation || 'N/A'}</span></div>`;
+    document.getElementById('pp-analysis').innerHTML =
+      '<div class="exp-row"><span class="exp-label" style="color:#6c3483">Paper</span><span class="exp-content">' + (document.getElementById('ppLabel').value || 'Uploaded Paper') + '</span></div>' +
+      '<div class="exp-row"><span class="exp-label" style="color:#6c3483">Total Marks</span><span class="exp-content">' + (pa.totalMarks || 'N/A') + '</span></div>' +
+      '<div class="exp-row"><span class="exp-label" style="color:#6c3483">Sections</span><span class="exp-content">' + ((pa.sections||[]).join(' · ') || 'N/A') + '</span></div>' +
+      '<div class="exp-row"><span class="exp-label" style="color:#6c3483">Topics Covered</span><span class="exp-content">' + ((pa.topicsCovered||[]).join(', ') || 'N/A') + '</span></div>' +
+      '<div class="exp-row"><span class="exp-label" style="color:#6c3483">Question Types</span><span class="exp-content">' + ((pa.questionTypes||[]).join(', ') || 'N/A') + '</span></div>' +
+      '<div class="exp-row"><span class="exp-label" style="color:#6c3483">Difficulty Pattern</span><span class="exp-content">' + (pa.difficultyObservation || 'N/A') + '</span></div>';
 
-    // Extracted questions
-    const eqs = data.extractedQuestions || [];
-    document.getElementById('pp-extracted').innerHTML = eqs.length
-      ? eqs.map((q,i) => `<div class="q-card" onclick="this.classList.toggle('open')">
-          <div class="q-num">Q${i+1} <span class="type-pill">${q.type||'—'}</span> <span class="q-marks">${q.marks||'?'} marks</span></div>
-          <div class="q-text">${q.question}</div>
-          <div class="q-answer">📌 Topic: ${q.topic||'—'}</div>
-        </div>`).join('')
-      : '<p style="color:var(--text-muted);padding:1rem">Could not extract questions from this image. Try a clearer scan.</p>';
+    // Solved questions (with full working)
+    const sqs = data.solvedQuestions || [];
+    document.getElementById('pp-solved').innerHTML = sqs.length
+      ? sqs.map((q,i) => '<div class="q-card" onclick="this.classList.toggle(&#39;open&#39;)">' +
+          '<div class="q-num">' + (q.qno || ('Q'+(i+1))) + ' <span class="type-pill">' + (q.type||'—') + '</span> <span class="q-marks">' + (q.marks||'?') + ' marks</span></div>' +
+          '<div class="q-text">' + q.question + '</div>' +
+          '<div class="q-answer">✅ <strong>Model Answer:</strong><br>' + formatAnswer(q.answer||'') + '<br><span class="q-explain">📌 Topic: ' + (q.topic||'—') + '</span></div>' +
+          '</div>').join('')
+      : '<p style="color:var(--text-muted);padding:1rem">No solved questions available.</p>';
 
-    // Generated questions
+    // Generated similar questions
     const gqs = data.generatedQuestions || [];
     document.getElementById('pp-generated').innerHTML = gqs.length
-      ? gqs.map((q,i) => `<div class="q-card" onclick="this.classList.toggle('open')">
-          <div class="q-num">Q${i+1} <span class="type-pill">${q.type||'—'}</span> <span class="q-marks">${q.marks||'?'} marks</span> <span class="diff-pill ${q.difficulty||'medium'}">${q.difficulty||'—'}</span></div>
-          <div class="q-text">${q.question}</div>
-          <div class="q-answer">${formatAnswer(q.answer||'')}</div>
-        </div>`).join('')
+      ? gqs.map((q,i) => '<div class="q-card" onclick="this.classList.toggle(&#39;open&#39;)">' +
+          '<div class="q-num">Q' + (i+1) + ' <span class="type-pill">' + (q.type||'—') + '</span> <span class="q-marks">' + (q.marks||'?') + ' marks</span> <span class="diff-pill ' + (q.difficulty||'medium') + '">' + (q.difficulty||'—') + '</span></div>' +
+          '<div class="q-text">' + q.question + '</div>' +
+          '<div class="q-answer">' + formatAnswer(q.answer||'') + '</div>' +
+          '</div>').join('')
       : '<p style="color:var(--text-muted);padding:1rem">No similar questions generated.</p>';
 
     document.getElementById('pp-output').style.display = 'block';
-    showPPTab('generated');
-    showToast('✅ Paper analysed! ' + gqs.length + ' similar questions generated.');
+    showPPTab('solved');
+    document.getElementById('pp-output').scrollIntoView({behavior:'smooth'});
+    showToast('✅ Paper solved! ' + sqs.length + ' questions answered + ' + gqs.length + ' new questions generated.');
   } catch(e) { showToast(e.message, true); }
   finally { hideLoader(); btn.disabled=false; btn.textContent='🔍 Analyse Paper & Generate Similar Questions'; }
 }
 
 function showPPTab(tab) {
-  document.getElementById('pp-extracted').style.display = tab==='extracted' ? 'block' : 'none';
-  document.getElementById('pp-generated').style.display = tab==='generated' ? 'block' : 'none';
-  document.getElementById('ppTab1').style.cssText = tab==='extracted' ? 'background:#9b59b6;color:white;border:none' : 'background:transparent;color:#9b59b6;border:1.5px solid #9b59b6';
-  document.getElementById('ppTab2').style.cssText = tab==='generated' ? 'background:#9b59b6;color:white;border:none' : 'background:transparent;color:#9b59b6;border:1.5px solid #9b59b6';
+  document.getElementById('pp-solved').style.display    = tab==='solved'     ? 'block' : 'none';
+  document.getElementById('pp-generated').style.display = tab==='generated'  ? 'block' : 'none';
+  document.getElementById('ppTab1').style.cssText = tab==='solved'    ? 'background:#9b59b6;color:white;border:none;padding:11px 24px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer' : 'background:transparent;color:#9b59b6;border:1.5px solid #9b59b6;padding:11px 24px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer';
+  document.getElementById('ppTab2').style.cssText = tab==='generated' ? 'background:#9b59b6;color:white;border:none;padding:11px 24px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer' : 'background:transparent;color:#9b59b6;border:1.5px solid #9b59b6;padding:11px 24px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer';
 }
 
 function printPaperAnalysis() {
@@ -931,17 +932,32 @@ function printPaperAnalysis() {
   const label = document.getElementById('ppLabel').value || 'Past Paper';
   const grade = document.getElementById('ppGrade').value;
   const subj  = document.getElementById('ppSubject').value;
-  let html = `<div class="print-header"><h1>📚 StudyBot — Past Paper Analysis</h1><div class="meta">${grade} · ${subj} · ${label} | ${new Date().toLocaleDateString()}</div></div>`;
+  let html = '<div class="print-header"><h1>📚 StudyBot — Past Paper: Solved + Similar Questions</h1>'
+    + '<div class="meta">' + grade + ' · ' + subj + ' · ' + label + ' | ' + new Date().toLocaleDateString() + '</div></div>';
 
   const pa = ppData.paperAnalysis || {};
-  html += `<div class="print-section"><h2>Paper Summary</h2><p>Total Marks: ${pa.totalMarks||'N/A'}</p><p>Topics: ${(pa.topicsCovered||[]).join(', ')}</p><p>Types: ${(pa.questionTypes||[]).join(', ')}</p><p>Difficulty: ${pa.difficultyObservation||'N/A'}</p></div>`;
+  html += '<div class="print-section"><h2>Paper Summary</h2>'
+    + '<p>Total Marks: ' + (pa.totalMarks||'N/A') + '</p>'
+    + '<p>Topics: ' + (pa.topicsCovered||[]).join(', ') + '</p>'
+    + '<p>Question Types: ' + (pa.questionTypes||[]).join(', ') + '</p>'
+    + '<p>Difficulty: ' + (pa.difficultyObservation||'N/A') + '</p></div>';
+
+  const sqs = ppData.solvedQuestions || [];
+  if (sqs.length) {
+    html += '<div class="print-section"><h2>Solved Questions with Model Answers</h2>';
+    sqs.forEach((q,i) => {
+      html += '<p><strong>' + (q.qno||('Q'+(i+1))) + '. [' + (q.type||'Q') + '] [' + (q.marks||'?') + ' marks]</strong> ' + q.question + '</p>';
+      html += '<p style="color:#2e7d32;margin-left:16px;margin-bottom:10px"><em>Model Answer: ' + (q.answer||'') + '</em></p>';
+    });
+    html += '</div>';
+  }
 
   const gqs = ppData.generatedQuestions || [];
   if (gqs.length) {
-    html += `<div class="print-section"><h2>Generated Similar Questions</h2>`;
+    html += '<div class="print-section"><h2>Generated Similar Questions</h2>';
     gqs.forEach((q,i) => {
-      html += `<p><strong>Q${i+1}. [${q.type||'Q'}] [${q.marks||'?'} marks]</strong> ${q.question}</p>`;
-      html += `<p style="color:#2e7d32;margin-left:16px;margin-bottom:10px"><em>Answer: ${q.answer||''}</em></p>`;
+      html += '<p><strong>Q' + (i+1) + '. [' + (q.type||'Q') + '] [' + (q.marks||'?') + ' marks]</strong> ' + q.question + '</p>';
+      html += '<p style="color:#2e7d32;margin-left:16px;margin-bottom:10px"><em>Answer: ' + (q.answer||'') + '</em></p>';
     });
     html += '</div>';
   }
@@ -1040,10 +1056,10 @@ async function generateEssay() {
     const vocabMatch  = raw.match(/\[VOCABULARY HIGHLIGHTS\]([\s\S]*?)(?=\[EXAMINER|$)/i);
     const tipMatch    = raw.match(/\[EXAMINER TIP\]([\s\S]*?)$/i);
 
-    const essayText = essayMatch  ? essayMatch[1].trim()  : raw;
-    const wcText    = wcMatch     ? wcMatch[1].trim()     : '';
-    const vocabText = vocabMatch  ? vocabMatch[1].trim()  : '';
-    const tipText   = tipMatch    ? tipMatch[1].trim()    : '';
+    const essayText = essayText0;
+    const wcText    = wcText0;
+    const vocabText = vocabText0;
+    const tipText   = tipText0;
 
     const langName = document.getElementById('essayLang').value;
     const typeName = document.getElementById('essayType').options[document.getElementById('essayType').selectedIndex].text;
@@ -1052,14 +1068,12 @@ async function generateEssay() {
     document.getElementById('essay-text').innerHTML = `
       <div class="essay-section">
         <div class="essay-section-title">✍️ ${typeName} — ${topic}</div>
-        <div class="essay-body">${essayText.replace(/
-/g,'<br>')}</div>
+        <div class="essay-body">${essayText.replace(/\n/g,'<br>')}</div>
       </div>
       ${wcText || vocabText || tipText ? `<div class="essay-meta">
         ${wcText ? `<p><strong>📊 ${wcText}</strong></p>` : ''}
         ${vocabText ? `<p style="margin-top:.75rem"><strong>📚 Vocabulary Highlights:</strong></p><div style="margin-top:.5rem">${
-          vocabText.split(/
-/).filter(l=>l.trim()).map(l=>{
+          vocabText.split(/\n/).filter(l=>l.trim()).map(l=>{
             const m = l.match(/^[\d.]+\s+(.+?)\s*[—-]+\s*(.+)$/);
             return m ? `<div class="vocab-item"><span class="vocab-word">${m[1]}</span><span>${m[2]}</span></div>`
                      : `<div style="font-size:13px;margin-bottom:4px">${l}</div>`;
@@ -1132,8 +1146,7 @@ function renderMnemonics(data) {
         <p style="font-size:13px;color:var(--text-muted);margin-bottom:.75rem">${m.example || ''}</p>`;
       if (m.content && m.expansion) {
         const letters = m.content.split('');
-        const words   = m.expansion.split(/[,
-—–-]/).map(w => w.trim()).filter(Boolean);
+        const words   = m.expansion.split(/[,\n\r—–-]/).map(w => w.trim()).filter(Boolean);
         html += '<div class="mn-acronym">';
         letters.forEach((l, i) => {
           html += `<div class="mn-letter-box"><span class="mn-letter">${l.toUpperCase()}</span><span class="mn-word">${words[i] || ''}</span></div>`;
@@ -1152,8 +1165,7 @@ function renderMnemonics(data) {
     html += `<div class="mn-card" style="border-left-color:var(--mint)">
       <div class="mn-card-title" style="color:var(--mint)">🏰 Memory Story</div>
       <p style="font-size:13px;color:var(--text-muted);margin-bottom:.75rem">${data.memoryPalace.description || ''}</p>
-      <div class="mn-story">${(data.memoryPalace.story || '').replace(/
-/g,'<br>')}</div>
+      <div class="mn-story">${(data.memoryPalace.story || '').replace(/\n/g,'<br>')}</div>
     </div>`;
   }
 
@@ -1162,8 +1174,7 @@ function renderMnemonics(data) {
     html += `<div class="mn-card" style="border-left-color:var(--coral)">
       <div class="mn-card-title" style="color:var(--coral)">🎵 Rhyme / Jingle</div>
       <p style="font-size:13px;color:var(--text-muted);margin-bottom:.75rem">${data.rhymeOrSong.description || ''}</p>
-      <div class="mn-rhyme">${(data.rhymeOrSong.content || '').replace(/
-/g,'<br>')}</div>
+      <div class="mn-rhyme">${(data.rhymeOrSong.content || '').replace(/\n/g,'<br>')}</div>
     </div>`;
   }
 
@@ -1191,7 +1202,7 @@ function renderMnemonics(data) {
     html += `<div class="mn-card" style="border-left-color:var(--amber)">
       <div class="mn-card-title" style="color:var(--amber)">🃏 Quick Recall Flash Cards <span style="font-size:12px;font-weight:400;color:var(--text-muted)">(click to flip)</span></div>`;
     cards.forEach((c, i) => {
-      html += `<div class="flashcard" onclick="this.classList.toggle('open')">
+      html += `<div class="flashcard" onclick="this.classList.toggle(&#39;open&#39;)">
         <div class="fc-front">Q${i+1}: ${c.front}</div>
         <div class="fc-back">✅ ${c.back}</div>
       </div>`;
