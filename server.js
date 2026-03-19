@@ -24,7 +24,7 @@ const upload = multer({
 const SCIENCE  = ['Physics','Chemistry','Biology','Environmental Science'];
 const MATHS    = ['Mathematics'];
 const HUMANITY = ['History & Civics','History','Geography','Economics','Commercial Studies','Accountancy','Business Studies','Psychology','Sociology','Political Science'];
-const LANGUAGE = ['English Language','English Literature','Hindi','English'];
+const LANGUAGE = ['English Language','English Literature','English','Hindi','French'];
 const COMP     = ['Computer Applications','Computer Science'];
 
 function subjectType(s) {
@@ -329,7 +329,7 @@ function buildQPromptC(grade, subject, topic) {
   const scienceShort = `Short answer ICSE Science pattern:
 Q1 (2 marks): Define [key term] and state its SI unit.
 Q2 (2 marks): State [law/principle] with its mathematical form.
-Q3 (2 marks): State the aim and one precaution of the ICSE experiment on ${topic}.
+Q3 (2 marks): State the aim and one precaution of the ICSE experiment on ${topic}. (SCIENCE ONLY — not for Maths)
 Q4 (3 marks): Distinguish between [A] and [B] on three bases (tabular: "Basis | A | B --- Def | ... | ... --- Unit | ... | ... --- Example | ... | ...").
 Q5 (3 marks): Numerical — A [object] of [value with unit] has [another value]. Calculate [quantity]. Show full working.`;
 
@@ -611,6 +611,141 @@ Student question: ${question}
 Give a clear answer with ICSE-relevant examples, SI units where applicable, and step-by-step working for numericals.`;
     const answer = await callGroq(prompt, 1024);
     res.json({ success:true, answer });
+  } catch(err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
+// ── /api/generate-essay ──────────────────────────────────────────────────────
+app.post('/api/generate-essay', async (req, res) => {
+  try {
+    const { grade, subject, topic, wordLimit, essayType, language } = req.body;
+    if (!topic) return res.status(400).json({ error: 'Topic is required.' });
+
+    const lang = language || 'English';
+    const words = wordLimit || 300;
+    const etype = essayType || 'descriptive';
+    const isHindi = lang === 'Hindi';
+    const isFrench = lang === 'French';
+
+    const langInstr = isHindi
+      ? `Write the essay ENTIRELY in Hindi (Devanagari script). Use appropriate Hindi literary language for ${grade} level.`
+      : isFrench
+      ? `Write the essay ENTIRELY in French. Use appropriate French literary language for ${grade} level (ICSE French syllabus).`
+      : `Write the essay in English following ICSE ${grade} language standards.`;
+
+    const typeInstr = {
+      descriptive: 'Descriptive essay — paint a vivid picture using sensory details, imagery, and expressive language.',
+      narrative:   'Narrative essay — tell a story with a clear beginning, rising action, climax, and conclusion. First or third person.',
+      argumentative: 'Argumentative / Discursive essay — present both sides of the issue, then give a clear personal stand with evidence.',
+      expository:  'Expository essay — explain the topic clearly and factually with examples and evidence. No personal opinion.',
+      letter:      'Formal or informal letter as per ICSE format — include date, address, salutation, body paragraphs, closing.',
+      speech:      'Speech / Address — begin with a greeting to the audience, use rhetorical devices, and end with a strong call to action.',
+    }[etype] || 'Write a well-structured essay appropriate for ICSE exams.';
+
+    const prompt = `You are an expert ICSE ${grade} ${subject || 'English'} teacher and examiner.
+
+Topic: "${topic}"
+Grade: ${grade}
+Essay type: ${etype}
+Word limit: approximately ${words} words
+Language: ${lang}
+
+${langInstr}
+
+${typeInstr}
+
+ICSE essay requirements:
+- Introduction: engaging opening that introduces the topic clearly
+- Body: 2-4 well-developed paragraphs, each with a clear point, explanation, and example
+- Conclusion: satisfying ending that reflects on the topic or gives a final thought
+- Vocabulary: use rich, varied vocabulary appropriate for ${grade}
+- Grammar: correct grammar, punctuation, and sentence variety
+- Format: proper paragraphing with indentation
+${words <= 200 ? '- Keep to approximately '+words+' words (short composition)' : words <= 400 ? '- Aim for approximately '+words+' words' : '- This is a long composition of approximately '+words+' words — develop each paragraph fully'}
+
+After the essay, provide:
+1. A word count estimate
+2. Three vocabulary highlights — difficult or impressive words used, with meanings
+3. One examiner tip for this essay type
+
+Return your response in this format — no markdown headers, just clear sections:
+
+[ESSAY]
+Write the complete essay here.
+
+[WORD COUNT]
+Approximately X words
+
+[VOCABULARY HIGHLIGHTS]
+1. Word — meaning and why it was used
+2. Word — meaning and why it was used
+3. Word — meaning and why it was used
+
+[EXAMINER TIP]
+One specific tip for scoring full marks on this type of essay in ICSE exams.`;
+
+    const result = await callGroq(prompt, 2000);
+    res.json({ success: true, essay: result });
+  } catch(err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
+// ── /api/generate-mnemonics ───────────────────────────────────────────────────
+app.post('/api/generate-mnemonics', async (req, res) => {
+  try {
+    const { grade, subject, topic, items } = req.body;
+    if (!topic) return res.status(400).json({ error: 'Topic is required.' });
+
+    const prompt = `You are a creative ICSE memory coach helping ${grade} ${subject} students remember difficult content.
+
+Topic: "${topic}"
+Grade: ${grade}
+Subject: ${subject}
+${items ? 'Specific items to remember: ' + items : ''}
+
+Create a comprehensive set of memory aids for this topic. Make them fun, visual, and memorable for school students.
+
+Return ONLY this JSON — no markdown:
+{
+  "topic": "${topic}",
+  "mnemonics": [
+    {
+      "type": "acronym",
+      "title": "Name of the mnemonic",
+      "content": "The acronym or keyword",
+      "expansion": "What each letter stands for",
+      "example": "How to use it — e.g. VIBGYOR for rainbow colours",
+      "items": ["item1", "item2", "item3"]
+    }
+  ],
+  "memoryPalace": {
+    "description": "A short vivid story or scene that links all the key concepts together",
+    "story": "The actual story — make it funny, dramatic, or absurd so it sticks"
+  },
+  "rhymeOrSong": {
+    "description": "A short rhyme, jingle or rap to remember key facts",
+    "content": "The actual rhyme or jingle"
+  },
+  "visualAssociations": [
+    {
+      "concept": "concept name",
+      "visual": "vivid visual image or association to remember it",
+      "tip": "how to use this mental image"
+    }
+  ],
+  "quickRecallCards": [
+    {
+      "front": "Question or prompt",
+      "back": "Answer with memory hook"
+    }
+  ]
+}
+
+Create at least 3 different mnemonic types, 1 memory palace story, 1 rhyme/jingle, 3 visual associations, and 5 quick recall cards.
+Make everything specific to "${topic}" in ICSE ${grade} ${subject}. Output JSON only.`;
+
+    const raw = await callGroq(prompt, 2500);
+    const data = safeJSON(raw, null);
+    if (!data) return res.status(500).json({ error: 'Could not generate mnemonics. Please try again.' });
+    res.json({ success: true, mnemonics: data });
   } catch(err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
