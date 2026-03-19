@@ -557,13 +557,14 @@ a{color:var(--teal);text-decoration:none}
       <div class="fg"><label>Year / Label (optional)</label><input type="text" id="ppLabel" placeholder="e.g. 2023 Board Paper"></div>
     </div>
     <div class="drop-zone" id="ppDropzone" style="border-color:var(--purple)">
-      <input type="file" id="ppFileInput" accept="image/*,.pdf" capture="environment">
+      <input type="file" id="ppFileInput" accept="image/*,.pdf" multiple>
       <div class="dz-icon">📸</div>
-      <div class="dz-label">Drop or tap to upload past paper</div>
-      <div class="dz-sub">📷 Camera photo or 📄 PDF · AI will transcribe and solve every question</div>
+      <div class="dz-label">Drop or tap to upload past paper pages</div>
+      <div class="dz-sub">📷 Multiple photos or 📄 PDF · all pages read together · AI solves every question</div>
     </div>
+    <div id="ppFileList" class="file-chips" style="margin-top:.5rem"></div>
     <div style="font-size:12px;color:var(--muted);margin-top:.5rem;padding:8px 10px;background:var(--surface);border-radius:6px;border-left:3px solid var(--purple)">
-      💡 For multi-page papers: upload as a single PDF, or photograph each page and combine into one upload
+      💡 Photograph each page separately with your camera, or upload a PDF — all pages are read together
     </div>
     <div id="ppFileName" style="font-size:12px;color:var(--mint);margin-top:.5rem;display:none"></div>
     <button class="btn btn-generate" id="ppBtn" onclick="analyzePaper()" style="background:var(--purple)">🔍 Solve Paper &amp; Generate Similar Questions</button>
@@ -727,7 +728,7 @@ updateSubjects('ppGrade','ppSubject');
 })();
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let selectedFiles=[], currentNotes='', currentQuestions={}, currentBank=[], qOnlyQuestions={}, ppData=null, ppFile=null;
+let selectedFiles=[], currentNotes='', currentQuestions={}, currentBank=[], qOnlyQuestions={}, ppData=null, ppFiles=[];
 
 // ── Page navigation ───────────────────────────────────────────────────────────
 function showPage(id, btn) {
@@ -1077,18 +1078,29 @@ const ppDz = document.getElementById('ppDropzone');
 const ppFi = document.getElementById('ppFileInput');
 ppDz.addEventListener('dragover', e=>{e.preventDefault();ppDz.classList.add('dragover');});
 ppDz.addEventListener('dragleave', ()=>ppDz.classList.remove('dragover'));
-ppDz.addEventListener('drop', e=>{e.preventDefault();ppDz.classList.remove('dragover');if(e.dataTransfer.files[0])setPPFile(e.dataTransfer.files[0]);});
-ppFi.addEventListener('change', ()=>{if(ppFi.files[0])setPPFile(ppFi.files[0]);ppFi.value='';});
+ppDz.addEventListener('drop', e=>{e.preventDefault();ppDz.classList.remove('dragover');addPPFiles([...e.dataTransfer.files]);});
+ppFi.addEventListener('change', ()=>{addPPFiles([...ppFi.files]);ppFi.value='';});
 
-function setPPFile(f) {
-  ppFile = f;
-  const el = document.getElementById('ppFileName');
-  el.textContent = '📄 ' + f.name + ' (' + (f.size/1024).toFixed(0) + ' KB)';
-  el.style.display = 'block';
+function addPPFiles(newFiles) {
+  newFiles.forEach(f => { if (!ppFiles.find(x=>x.name===f.name&&x.size===f.size)) ppFiles.push(f); });
+  renderPPFiles();
 }
 
+function renderPPFiles() {
+  const el = document.getElementById('ppFileList');
+  if (!el) return;
+  el.innerHTML = ppFiles.map((f,i) =>
+    '<div class="chip">' + (f.type.includes('pdf')?'📄':'📷') + ' ' + (f.name.length>20?f.name.slice(0,18)+'…':f.name) +
+    ' <button onclick="removePPFile(' + i + ')">✕</button></div>'
+  ).join('');
+  const sub = ppDz.querySelector('.dz-sub');
+  if (sub && ppFiles.length > 0) sub.textContent = '✅ ' + ppFiles.length + ' page' + (ppFiles.length>1?'s':'') + ' ready — drop more to add more pages';
+}
+
+function removePPFile(i) { ppFiles.splice(i,1); renderPPFiles(); }
+
 async function analyzePaper() {
-  if (!ppFile) { showToast('Please upload a past paper first!', true); return; }
+  if (!ppFiles.length) { showToast('Please upload at least one page!', true); return; }
   const btn = document.getElementById('ppBtn');
   btn.disabled = true; btn.textContent = '⏳ Processing…';
 
@@ -1102,7 +1114,7 @@ async function analyzePaper() {
   document.getElementById('pp-generated').innerHTML = '';
 
   const fd = new FormData();
-  fd.append('paper', ppFile);
+  ppFiles.forEach(f => fd.append('paper', f));
   fd.append('grade',   document.getElementById('ppGrade').value);
   fd.append('subject', document.getElementById('ppSubject').value);
 
