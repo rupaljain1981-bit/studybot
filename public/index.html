@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StudyBot — AI Study Companion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<!-- ── SCREEN STYLES ─────────────────────────────────────────────────────── -->
+<style>
+:root {
+  --navy:#0f1b2d; --navy-mid:#162236; --navy-light:#1e3250;
+  --amber:#f5a623; --amber-light:#ffd07b; --amber-pale:#fff8ec;
+  --sky:#5ba4cf; --sky-light:#c5dff5;
+  --mint:#2ec4b6; --coral:#ff6b6b;
+  --white:#ffffff; --off-white:#f8f6f0;
+  --text-dark:#0f1b2d; --text-muted:#6b7a8d;
+  --border:#e2d9c8; --card-shadow:0 4px 24px rgba(15,27,45,.08);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:var(--off-white);color:var(--text-dark);min-height:100vh}
+
+/* header */
+header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;justify-content:space-between;height:64px;position:sticky;top:0;z-index:100;border-bottom:2px solid var(--amber)}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-icon{width:36px;height:36px;background:var(--amber);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px}
+.logo-text{font-family:'Fraunces',serif;font-size:22px;font-weight:700;color:var(--white)}
+.logo-text span{color:var(--amber)}
+.header-badge{background:var(--navy-light);border:1px solid var(--sky);color:var(--sky-light);font-size:12px;font-weight:500;padding:4px 12px;border-radius:20px}
+
+/* hero */
+.hero{background:var(--navy);padding:2.5rem 2rem 3rem;text-align:center;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 30% 50%,rgba(91,164,207,.12) 0%,transparent 60%),radial-gradient(ellipse at 70% 50%,rgba(245,166,35,.08) 0%,transparent 60%)}
+.hero-content{position:relative;z-index:1}
+.hero h1{font-family:'Fraunces',serif;font-size:clamp(1.8rem,4vw,3rem);font-weight:700;color:var(--white);line-height:1.2;margin-bottom:.75rem}
+.hero h1 em{color:var(--amber);font-style:normal}
+.hero p{color:var(--sky-light);font-size:1rem;max-width:520px;margin:0 auto}
+
+/* layout */
+.app-body{max-width:1100px;margin:0 auto;padding:2rem 1.5rem}
+
+/* panel */
+.panel{background:var(--white);border-radius:20px;padding:2rem;box-shadow:var(--card-shadow);margin-bottom:2rem;border:1px solid var(--border)}
+.panel-title{font-family:'Fraunces',serif;font-size:1.2rem;font-weight:600;margin-bottom:1.5rem;display:flex;align-items:center;gap:10px}
+
+/* form grid */
+.form-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1.5rem}
+@media(max-width:680px){.form-grid{grid-template-columns:1fr}}
+.form-group label{display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em}
+.form-group select,.form-group input[type=text]{width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text-dark);background:var(--off-white);outline:none;transition:border-color .2s}
+.form-group select:focus,.form-group input:focus{border-color:var(--amber);background:var(--white)}
+
+/* dropzone */
+.optional-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--mint);background:#e6faf8;border:1px solid #a0ede6;padding:3px 10px;border-radius:20px;display:inline-block;margin-bottom:10px}
+.drop-zone{border:2.5px dashed var(--border);border-radius:16px;padding:2rem;text-align:center;cursor:pointer;transition:all .2s;background:var(--off-white);position:relative}
+.drop-zone:hover,.drop-zone.dragover{border-color:var(--amber);background:var(--amber-pale)}
+.drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.drop-icon{font-size:2rem;margin-bottom:.5rem}
+.drop-label{font-size:14px;font-weight:500}
+.drop-sub{font-size:12px;color:var(--text-muted);margin-top:4px}
+.file-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:1rem}
+.file-chip{background:var(--navy-light);color:var(--sky-light);font-size:12px;padding:4px 10px;border-radius:20px;display:flex;align-items:center;gap:6px}
+.file-chip button{background:none;border:none;color:var(--coral);cursor:pointer;font-size:14px;line-height:1;padding:0}
+.upload-hint{font-size:13px;color:var(--text-muted);margin-top:12px;padding:10px 14px;background:var(--off-white);border-radius:10px;border-left:3px solid var(--amber)}
+
+/* buttons */
+.btn{padding:11px 24px;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:all .2s;display:inline-flex;align-items:center;gap:8px}
+.btn-primary{background:var(--amber);color:var(--navy)}
+.btn-primary:hover{background:var(--amber-light);transform:translateY(-1px)}
+.btn-primary:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.btn-secondary{background:var(--navy);color:var(--white)}
+.btn-secondary:hover{background:var(--navy-light)}
+.btn-secondary:disabled{opacity:.4;cursor:not-allowed}
+.btn-outline{background:transparent;color:var(--navy);border:1.5px solid var(--border)}
+.btn-outline:hover{border-color:var(--amber);color:var(--amber)}
+.btn-pdf{background:#e8f5e9;color:#2e7d32;border:1.5px solid #a5d6a7}
+.btn-pdf:hover{background:#c8e6c9}
+.action-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:1.5rem}
+
+/* tabs */
+.tabs-wrapper{background:var(--white);border-radius:20px;box-shadow:var(--card-shadow);border:1px solid var(--border);overflow:hidden}
+.tab-bar{display:flex;border-bottom:1px solid var(--border);background:var(--navy);overflow-x:auto}
+.tab-btn{padding:14px 20px;background:none;border:none;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:rgba(197,223,245,.6);cursor:pointer;white-space:nowrap;border-bottom:3px solid transparent;transition:all .2s;display:flex;align-items:center;gap:7px}
+.tab-btn:hover{color:var(--sky-light)}
+.tab-btn.active{color:var(--amber);border-bottom-color:var(--amber);background:rgba(245,166,35,.05)}
+.tab-content{display:none;padding:2rem;min-height:280px}
+.tab-content.active{display:block}
+
+/* notes */
+.source-tag{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--sky);background:var(--navy);padding:4px 10px;border-radius:20px;margin-bottom:1rem}
+.notes-content{font-size:15px;line-height:1.8}
+.notes-content section{background:var(--off-white);border-radius:14px;padding:1.25rem 1.5rem;margin-bottom:1.25rem;border-left:4px solid var(--amber)}
+.notes-content h2{font-family:'Fraunces',serif;font-size:1.1rem;margin-bottom:.75rem;color:var(--navy)}
+.notes-content h3{font-size:.95rem;font-weight:600;margin:.75rem 0 .4rem;color:var(--navy-light)}
+.notes-content ul,.notes-content ol{padding-left:1.4rem;margin:.4rem 0}
+.notes-content li{margin-bottom:5px}
+.notes-content .memory-tricks{border-left-color:var(--mint);background:#f0fcfa}
+.notes-content .important-formulas{border-left-color:var(--sky);background:#f0f7ff}
+.notes-content .quick-summary{border-left-color:var(--coral);background:#fff5f5}
+.notes-content .infographic{border-left-color:var(--amber);background:var(--amber-pale)}
+.notes-content pre{font-size:13px;background:var(--navy);color:var(--sky-light);padding:1rem;border-radius:8px;overflow-x:auto;white-space:pre-wrap}
+.notes-toolbar{display:flex;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap}
+
+/* questions */
+.diff-tabs{display:flex;gap:8px;flex-wrap:wrap}
+.diff-btn{padding:6px 14px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;border:1.5px solid var(--border);background:transparent;color:var(--text-muted);transition:all .2s}
+.diff-btn.active[data-diff=easy]{background:#e8f8f4;border-color:var(--mint);color:#0f6e5a}
+.diff-btn.active[data-diff=medium]{background:#fff8e8;border-color:var(--amber);color:#8a5a00}
+.diff-btn.active[data-diff=hard]{background:#fff0f0;border-color:var(--coral);color:#c0392b}
+.diff-btn.active[data-diff=truefalse]{background:#eef3ff;border-color:var(--sky);color:#1a4a8a}
+.q-card{background:var(--off-white);border-radius:12px;padding:1.1rem;margin-bottom:.9rem;border:1px solid var(--border);cursor:pointer;transition:all .2s}
+.q-card:hover{border-color:var(--amber);box-shadow:0 2px 12px rgba(245,166,35,.1)}
+.q-num{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:7px}
+.q-text{font-size:14px;font-weight:500;line-height:1.6}
+.q-answer{display:none;margin-top:10px;padding:10px 12px;background:var(--white);border-radius:8px;border-left:3px solid var(--mint);font-size:13px;line-height:1.7;color:#2d5a52}
+.q-card.open .q-answer{display:block}
+.q-type-badge{display:inline-block;font-size:10px;padding:2px 7px;border-radius:10px;margin-left:7px;background:var(--sky-light);color:var(--navy);font-weight:500}
+.questions-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;flex-wrap:wrap;gap:.75rem}
+
+/* bank */
+.bank-filters{display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:10px;margin-bottom:1.5rem;align-items:end}
+@media(max-width:780px){.bank-filters{grid-template-columns:1fr 1fr}}
+.bank-table{width:100%;border-collapse:collapse;font-size:13px}
+.bank-table th{background:var(--navy);color:var(--sky-light);padding:10px 12px;text-align:left;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.bank-table td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+.bank-table tr:hover td{background:var(--amber-pale)}
+.diff-pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10px;font-weight:600;text-transform:uppercase}
+.diff-pill.easy{background:#d4f5ec;color:#0f6e5a}
+.diff-pill.medium{background:#ffe9b3;color:#7a4a00}
+.diff-pill.hard{background:#ffd3d3;color:#9b2020}
+
+/* ask box */
+.ask-box{background:var(--navy);border-radius:14px;padding:1.5rem;margin-top:2rem}
+.ask-box h3{font-family:'Fraunces',serif;color:var(--white);margin-bottom:1rem;font-size:1rem}
+.ask-row{display:flex;gap:10px}
+.ask-row input{flex:1;padding:11px 15px;background:var(--navy-light);border:1px solid rgba(91,164,207,.3);border-radius:10px;color:var(--white);font-family:'DM Sans',sans-serif;font-size:14px;outline:none}
+.ask-row input::placeholder{color:rgba(197,223,245,.5)}
+.ask-row input:focus{border-color:var(--amber)}
+.ask-answer{margin-top:1rem;padding:1rem;background:var(--navy-light);border-radius:10px;color:var(--sky-light);font-size:14px;line-height:1.7;display:none}
+.ask-answer.show{display:block}
+
+/* loader */
+.loader-overlay{display:none;position:fixed;inset:0;background:rgba(15,27,45,.75);z-index:1000;align-items:center;justify-content:center;flex-direction:column;gap:1rem}
+.loader-overlay.show{display:flex}
+.spinner{width:48px;height:48px;border:4px solid rgba(245,166,35,.3);border-top-color:var(--amber);border-radius:50%;animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loader-text{color:var(--white);font-size:15px;font-weight:500}
+
+/* empty */
+.empty-state{text-align:center;padding:2.5rem;color:var(--text-muted)}
+.empty-state .ei{font-size:2.5rem;margin-bottom:.75rem}
+.empty-state h3{font-family:'Fraunces',serif;margin-bottom:.4rem;color:var(--navy)}
+.empty-state p{font-size:13px}
+
+/* toast */
+.toast{position:fixed;bottom:2rem;right:2rem;background:var(--navy);color:var(--white);padding:12px 18px;border-radius:12px;font-size:13px;border-left:4px solid var(--amber);box-shadow:0 8px 32px rgba(0,0,0,.2);transform:translateY(100px);opacity:0;transition:all .3s;z-index:2000;max-width:300px}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.error{border-left-color:var(--coral)}
+</style>
+
+<!-- ── PDF / PRINT STYLES ──────────────────────────────────────────────────── -->
+<style id="print-styles">
+@media print {
+  body * { visibility: hidden }
+  #print-area, #print-area * { visibility: visible }
+  #print-area {
+    position: absolute; left: 0; top: 0; width: 100%;
+    font-family: 'DM Sans', sans-serif; font-size: 13pt; color: #000;
+  }
+  .print-header { border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px }
+  .print-header h1 { font-size: 20pt; margin-bottom: 4px }
+  .print-header .meta { font-size: 10pt; color: #555 }
+  .print-section { page-break-inside: avoid; margin-bottom: 20px; padding: 14px; border: 1px solid #ccc; border-radius: 6px }
+  .print-section h2 { font-size: 14pt; margin-bottom: 8px; border-bottom: 1px solid #ddd; padding-bottom: 6px }
+  .print-section h3 { font-size: 12pt; margin: 8px 0 4px }
+  ul, ol { padding-left: 18px }
+  li { margin-bottom: 4px }
+  table { width: 100%; border-collapse: collapse; font-size: 11pt }
+  th { background: #eee !important; padding: 7px; border: 1px solid #ccc; text-align: left; font-size: 10pt }
+  td { padding: 7px; border: 1px solid #ddd; vertical-align: top }
+  tr:nth-child(even) td { background: #fafafa }
+  .no-print { display: none !important }
+  @page { margin: 18mm; size: A4 }
+}
+</style>
+</head>
+<body>
+
+<!-- hidden print container -->
+<div id="print-area" style="display:none"></div>
+
+<div class="loader-overlay" id="loader">
+  <div class="spinner"></div>
+  <div class="loader-text" id="loader-text">Working on it...</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">📚</div>
+    <div class="logo-text">Study<span>Bot</span></div>
+  </div>
+  <div class="header-badge">Grade 6–12 · AI Powered · Free</div>
+</header>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-content">
+    <h1>Your Personal<br><em>AI Study Companion</em></h1>
+    <p>Enter a topic or upload textbook pages — get notes, questions &amp; a full question bank, all printable as PDF.</p>
+  </div>
+</div>
+
+<!-- UPLOAD PANEL -->
+<div class="app-body">
+<div class="panel">
+  <div class="panel-title">📤 What do you want to study?</div>
+
+  <div class="form-grid">
+    <div class="form-group">
+      <label>Grade</label>
+      <select id="grade">
+        <option value="Grade 6">Grade 6</option>
+        <option value="Grade 7">Grade 7</option>
+        <option value="Grade 8" selected>Grade 8</option>
+        <option value="Grade 9">Grade 9</option>
+        <option value="Grade 10">Grade 10</option>
+        <option value="Grade 11">Grade 11</option>
+        <option value="Grade 12">Grade 12</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Subject</label>
+      <select id="subject">
+        <option value="">-- Select Subject --</option>
+        <option>Mathematics</option>
+        <option>Science (Physics)</option>
+        <option>Science (Chemistry)</option>
+        <option>Science (Biology)</option>
+        <option>History &amp; Civics</option>
+        <option>Geography</option>
+        <option>English Language</option>
+        <option>English Literature</option>
+        <option>Hindi</option>
+        <option>Computer Science</option>
+        <option>Economics</option>
+        <option>Accountancy</option>
+        <option>Business Studies</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Chapter / Topic</label>
+      <input type="text" id="topic" placeholder="e.g. Photosynthesis, Quadratic Equations…">
+    </div>
+  </div>
+
+  <div class="optional-label">Upload optional — topic name is enough</div>
+  <div class="drop-zone" id="dropzone">
+    <input type="file" id="fileInput" accept="image/*,.pdf" multiple>
+    <div class="drop-icon">🖼️</div>
+    <div class="drop-label">Drop textbook images or PDFs here</div>
+    <div class="drop-sub">JPG, PNG, WEBP or PDF · up to 20 MB each</div>
+  </div>
+  <div class="file-list" id="fileList"></div>
+  <p class="upload-hint">💡 No files? Just enter a grade, subject and topic — AI will generate notes from its knowledge.</p>
+
+  <div class="action-row">
+    <button class="btn btn-primary" onclick="generateNotes()">✨ Generate Study Notes</button>
+    <button class="btn btn-secondary" id="questionsBtn" onclick="generateQuestions()" disabled>📝 Create Questions</button>
+    <button class="btn btn-outline" onclick="clearAll()">🗑 Clear</button>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs-wrapper">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('notes',this)">📖 Study Notes</button>
+    <button class="tab-btn" onclick="switchTab('questions',this)">❓ Questions</button>
+    <button class="tab-btn" onclick="switchTab('bank',this)">🏦 Question Bank</button>
+  </div>
+
+  <!-- NOTES -->
+  <div class="tab-content active" id="tab-notes">
+    <div id="notes-empty" class="empty-state">
+      <div class="ei">📖</div>
+      <h3>No notes yet</h3>
+      <p>Select a grade, enter a topic and click Generate Study Notes</p>
+    </div>
+    <div id="notes-output" style="display:none">
+      <div class="notes-toolbar">
+        <button class="btn btn-pdf" onclick="printNotes()">🖨️ Download / Print as PDF</button>
+        <button class="btn btn-outline" onclick="copyNotes()">📋 Copy Text</button>
+      </div>
+      <div id="notes-html" class="notes-content"></div>
+      <div class="ask-box">
+        <h3>💬 Ask me anything about these notes</h3>
+        <div class="ask-row">
+          <input type="text" id="askInput" placeholder="e.g. Explain this in simpler words…" onkeydown="if(event.key==='Enter')askQuestion()">
+          <button class="btn btn-primary" onclick="askQuestion()">Ask ↗</button>
+        </div>
+        <div class="ask-answer" id="askAnswer"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- QUESTIONS -->
+  <div class="tab-content" id="tab-questions">
+    <div id="q-empty" class="empty-state">
+      <div class="ei">❓</div>
+      <h3>No questions yet</h3>
+      <p>Generate notes first, then click Create Questions</p>
+    </div>
+    <div id="q-output" style="display:none">
+      <div class="questions-header">
+        <div class="panel-title" style="margin:0">❓ Practice Questions</div>
+        <div class="diff-tabs">
+          <button class="diff-btn active" data-diff="easy"      onclick="filterQ('easy',this)">🟢 Easy</button>
+          <button class="diff-btn"        data-diff="medium"    onclick="filterQ('medium',this)">🟡 Medium</button>
+          <button class="diff-btn"        data-diff="hard"      onclick="filterQ('hard',this)">🔴 Hard</button>
+          <button class="diff-btn"        data-diff="truefalse" onclick="filterQ('truefalse',this)">🔵 True/False</button>
+        </div>
+      </div>
+      <div style="margin-bottom:1rem">
+        <button class="btn btn-pdf" onclick="printQuestions()">🖨️ Print All Questions as PDF</button>
+      </div>
+      <div id="q-list"></div>
+    </div>
+  </div>
+
+  <!-- BANK -->
+  <div class="tab-content" id="tab-bank">
+    <div class="panel-title">🏦 ICSE / CBSE Question Bank</div>
+    <p style="color:var(--text-muted);font-size:13px;margin-bottom:1.25rem">Search for real past-paper questions on any topic across grades.</p>
+
+    <div class="bank-filters">
+      <div class="form-group">
+        <label>Grade</label>
+        <select id="bankGrade">
+          <option>Grade 6</option><option>Grade 7</option><option value="Grade 8" selected>Grade 8</option>
+          <option>Grade 9</option><option>Grade 10</option><option>Grade 11</option><option>Grade 12</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Subject</label>
+        <select id="bankSubject">
+          <option value="">-- Select --</option>
+          <option>Mathematics</option><option>Science (Physics)</option><option>Science (Chemistry)</option>
+          <option>Science (Biology)</option><option>History &amp; Civics</option><option>Geography</option>
+          <option>English Language</option><option>English Literature</option><option>Economics</option>
+          <option>Accountancy</option><option>Business Studies</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Topic</label>
+        <input type="text" id="bankTopic" placeholder="e.g. Quadratic Equations">
+      </div>
+      <div class="form-group">
+        <label>Difficulty</label>
+        <select id="bankDifficulty">
+          <option value="mixed">Mixed</option><option value="easy">Easy</option>
+          <option value="medium">Medium</option><option value="hard">Hard</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="fetchBank()" style="height:44px;align-self:end">🔍 Search</button>
+    </div>
+
+    <div id="bank-empty" class="empty-state">
+      <div class="ei">🏦</div>
+      <h3>Ready to search</h3>
+      <p>Select grade, subject, enter a topic and click Search</p>
+    </div>
+    <div id="bank-output" style="display:none">
+      <div style="margin-bottom:1rem">
+        <button class="btn btn-pdf" onclick="printBank()">🖨️ Print Question Bank as PDF</button>
+      </div>
+      <table class="bank-table">
+        <thead>
+          <tr><th>#</th><th>Question</th><th>Level</th><th>Answer</th><th>Source / Year</th></tr>
+        </thead>
+        <tbody id="bank-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div><!-- /app-body -->
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let selectedFiles = [], currentNotes = '', currentQuestions = {}, currentBank = [];
+
+// ── File handling ──────────────────────────────────────────────────────────
+const dropzone  = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const fileList  = document.getElementById('fileList');
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => { e.preventDefault(); dropzone.classList.remove('dragover'); addFiles([...e.dataTransfer.files]); });
+fileInput.addEventListener('change', () => { addFiles([...fileInput.files]); fileInput.value = ''; });
+
+function addFiles(f) {
+  f.forEach(x => { if (!selectedFiles.find(y => y.name===x.name && y.size===x.size)) selectedFiles.push(x); });
+  renderFiles();
+}
+function renderFiles() {
+  fileList.innerHTML = selectedFiles.map((f,i)=>`
+    <div class="file-chip">${f.type.includes('pdf')?'📄':'🖼️'} ${f.name.length>22?f.name.slice(0,20)+'…':f.name}
+      <button onclick="removeFile(${i})">✕</button></div>`).join('');
+}
+function removeFile(i) { selectedFiles.splice(i,1); renderFiles(); }
+
+function clearAll() {
+  selectedFiles=[]; currentNotes=''; currentQuestions={};
+  renderFiles();
+  ['notes','q'].forEach(id=>{
+    document.getElementById(id+'-empty').style.display='';
+    document.getElementById(id+'-output').style.display='none';
+  });
+  document.getElementById('questionsBtn').disabled=true;
+}
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ── Loader / Toast ─────────────────────────────────────────────────────────
+function showLoader(msg) { document.getElementById('loader-text').textContent=msg||'Working…'; document.getElementById('loader').classList.add('show'); }
+function hideLoader()    { document.getElementById('loader').classList.remove('show'); }
+function showToast(msg, err) {
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className='toast show'+(err?' error':'');
+  setTimeout(()=>t.className='toast',4000);
+}
+
+// ── Generate Notes ─────────────────────────────────────────────────────────
+async function generateNotes() {
+  const topic = document.getElementById('topic').value.trim();
+  if (!selectedFiles.length && !topic) { showToast('Enter a topic or upload files first!',true); return; }
+
+  showLoader(selectedFiles.length ? '🧠 Analysing your textbook…' : '🌐 Generating notes for '+topic+'…');
+
+  const fd = new FormData();
+  selectedFiles.forEach(f => fd.append('files', f));
+  fd.append('subject', document.getElementById('subject').value);
+  fd.append('topic',   topic);
+  fd.append('grade',   document.getElementById('grade').value);
+
+  try {
+    const data = await post('/api/generate-notes', fd, true);
+    currentNotes = data.notes;
+
+    const tag = `<div class="source-tag">${data.fromTopic ? '🌐 AI-generated · web knowledge' : '📄 From your uploaded files'}</div>`;
+    document.getElementById('notes-html').innerHTML = tag + data.notes;
+    document.getElementById('notes-empty').style.display  = 'none';
+    document.getElementById('notes-output').style.display = 'block';
+    document.getElementById('questionsBtn').disabled = false;
+    switchTab('notes', document.querySelector('.tab-btn'));
+    showToast('✅ Notes ready!');
+  } catch(e) { showToast(e.message, true); }
+  finally    { hideLoader(); }
+}
+
+// ── Generate Questions ─────────────────────────────────────────────────────
+async function generateQuestions() {
+  if (!currentNotes) { showToast('Generate notes first!',true); return; }
+  showLoader('📝 Creating questions…');
+  try {
+    const data = await post('/api/generate-questions', {
+      notes:   document.getElementById('notes-html').innerText,
+      subject: document.getElementById('subject').value,
+      topic:   document.getElementById('topic').value,
+      grade:   document.getElementById('grade').value
+    });
+    currentQuestions = data.questions;
+    renderQuestions('easy');
+    document.getElementById('q-empty').style.display  = 'none';
+    document.getElementById('q-output').style.display = 'block';
+    switchTab('questions', document.querySelectorAll('.tab-btn')[1]);
+    showToast('✅ Questions ready!');
+  } catch(e) { showToast(e.message, true); }
+  finally    { hideLoader(); }
+}
+
+function renderQuestions(diff) {
+  const qs = currentQuestions[diff] || [];
+  document.getElementById('q-list').innerHTML = qs.length
+    ? qs.map((q,i)=>`
+        <div class="q-card" onclick="this.classList.toggle('open')">
+          <div class="q-num">Q${i+1} <span class="q-type-badge">${q.type||diff}</span></div>
+          <div class="q-text">${q.q}</div>
+          <div class="q-answer">✅ <strong>Answer:</strong> ${q.a}${q.explanation?'<br><br>💡 '+q.explanation:''}</div>
+        </div>`).join('')
+    : '<p style="color:var(--text-muted);text-align:center;padding:2rem">No questions in this category.</p>';
+}
+
+function filterQ(diff, btn) {
+  document.querySelectorAll('.diff-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderQuestions(diff);
+}
+
+// ── Question Bank ──────────────────────────────────────────────────────────
+async function fetchBank() {
+  const subject = document.getElementById('bankSubject').value;
+  const topic   = document.getElementById('bankTopic').value.trim();
+  if (!subject || !topic) { showToast('Select a subject and enter a topic.',true); return; }
+
+  showLoader('🌐 Searching past papers…');
+  try {
+    const data = await post('/api/question-bank', {
+      subject, topic,
+      difficulty: document.getElementById('bankDifficulty').value,
+      grade:      document.getElementById('bankGrade').value
+    });
+    currentBank = data.bank.questions || [];
+    document.getElementById('bank-tbody').innerHTML = currentBank.map((q,i)=>`
+      <tr>
+        <td style="color:var(--text-muted);font-size:11px">${i+1}</td>
+        <td>${q.question}</td>
+        <td><span class="diff-pill ${q.difficulty}">${q.difficulty}</span></td>
+        <td style="color:var(--text-muted);font-size:12px">${q.answer||'—'}</td>
+        <td style="font-size:11px;color:var(--sky)">${q.source||'—'}${q.year?' ('+q.year+')':''}</td>
+      </tr>`).join('');
+    document.getElementById('bank-empty').style.display  = 'none';
+    document.getElementById('bank-output').style.display = 'block';
+    showToast('✅ Found '+currentBank.length+' questions!');
+  } catch(e) { showToast(e.message, true); }
+  finally    { hideLoader(); }
+}
+
+// ── Ask ────────────────────────────────────────────────────────────────────
+async function askQuestion() {
+  const q = document.getElementById('askInput').value.trim();
+  if (!q) return;
+  showLoader('🤔 Thinking…');
+  try {
+    const data = await post('/api/ask', {
+      question: q,
+      context:  document.getElementById('notes-html').innerText.slice(0,2000),
+      grade:    document.getElementById('grade').value
+    });
+    const ans = document.getElementById('askAnswer');
+    ans.innerHTML = data.answer.replace(/\n/g,'<br>');
+    ans.classList.add('show');
+    document.getElementById('askInput').value = '';
+  } catch(e) { showToast(e.message, true); }
+  finally    { hideLoader(); }
+}
+
+// ── Copy notes ─────────────────────────────────────────────────────────────
+function copyNotes() {
+  navigator.clipboard.writeText(document.getElementById('notes-html').innerText);
+  showToast('📋 Copied!');
+}
+
+// ── PDF PRINT HELPERS ──────────────────────────────────────────────────────
+function buildPrintHeader(title) {
+  const grade   = document.getElementById('grade').value;
+  const subject = document.getElementById('subject').value;
+  const topic   = document.getElementById('topic').value;
+  return `<div class="print-header">
+    <h1>📚 StudyBot — ${title}</h1>
+    <div class="meta">${grade}${subject?' · '+subject:''}${topic?' · '+topic:''} &nbsp;|&nbsp; Printed: ${new Date().toLocaleDateString()}</div>
+  </div>`;
+}
+
+function printNotes() {
+  const pa = document.getElementById('print-area');
+  pa.style.display = 'block';
+  pa.innerHTML = buildPrintHeader('Study Notes') + document.getElementById('notes-html').innerHTML;
+  setTimeout(()=>{ window.print(); pa.style.display='none'; }, 200);
+}
+
+function printQuestions() {
+  const diffs = ['easy','medium','hard','truefalse'];
+  const labels = { easy:'🟢 Easy', medium:'🟡 Medium', hard:'🔴 Hard', truefalse:'🔵 True / False' };
+  let html = buildPrintHeader('Practice Questions');
+
+  diffs.forEach(d => {
+    const qs = currentQuestions[d] || [];
+    if (!qs.length) return;
+    html += `<div class="print-section"><h2>${labels[d]}</h2>`;
+    qs.forEach((q,i) => {
+      html += `<p><strong>Q${i+1}.</strong> ${q.q}</p>`;
+      html += `<p style="color:#2e7d32;margin-left:16px;margin-bottom:10px">▶ ${q.a}${q.explanation?' — '+q.explanation:''}</p>`;
+    });
+    html += '</div>';
+  });
+
+  const pa = document.getElementById('print-area');
+  pa.style.display = 'block';
+  pa.innerHTML = html;
+  setTimeout(()=>{ window.print(); pa.style.display='none'; }, 200);
+}
+
+function printBank() {
+  const subject = document.getElementById('bankSubject').value;
+  const topic   = document.getElementById('bankTopic').value;
+  const grade   = document.getElementById('bankGrade').value;
+
+  let html = `<div class="print-header">
+    <h1>📚 StudyBot — Question Bank</h1>
+    <div class="meta">${grade} · ${subject} · ${topic} &nbsp;|&nbsp; Printed: ${new Date().toLocaleDateString()}</div>
+  </div>
+  <table>
+    <thead><tr><th>#</th><th>Question</th><th>Level</th><th>Answer</th><th>Source</th></tr></thead>
+    <tbody>`;
+
+  currentBank.forEach((q,i) => {
+    html += `<tr>
+      <td>${i+1}</td>
+      <td>${q.question}</td>
+      <td>${q.difficulty}</td>
+      <td>${q.answer||'—'}</td>
+      <td>${q.source||'—'}${q.year?' ('+q.year+')':''}</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+
+  const pa = document.getElementById('print-area');
+  pa.style.display = 'block';
+  pa.innerHTML = html;
+  setTimeout(()=>{ window.print(); pa.style.display='none'; }, 200);
+}
+
+// ── API helper ─────────────────────────────────────────────────────────────
+async function post(url, body, isFormData=false) {
+  const opts = { method:'POST' };
+  if (isFormData) { opts.body = body; }
+  else { opts.headers = {'Content-Type':'application/json'}; opts.body = JSON.stringify(body); }
+  const res  = await fetch(url, opts);
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || 'Unknown error');
+  return data;
+}
+</script>
+</body>
+</html>
