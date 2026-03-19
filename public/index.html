@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StudyBot — ICSE/ISC AI Companion</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
 :root{
   --navy:#0f1b2d;--navy-mid:#162236;--navy-light:#1e3250;
@@ -31,7 +31,7 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
 .hero-content{position:relative;z-index:1}
 .hero h1{font-family:'Fraunces',serif;font-size:clamp(1.8rem,4vw,3rem);font-weight:700;color:var(--white);line-height:1.2;margin-bottom:.75rem}
 .hero h1 em{color:var(--amber);font-style:normal}
-.hero p{color:var(--sky-light);font-size:1rem;max-width:520px;margin:0 auto}
+.hero p{color:var(--sky-light);font-size:1rem;max-width:540px;margin:0 auto}
 
 /* ── Layout ── */
 .app-body{max-width:1100px;margin:0 auto;padding:2rem 1.5rem}
@@ -72,8 +72,6 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
 .btn-pdf:hover{background:#c8e6c9}
 .btn-big{padding:14px 36px;font-size:16px;border-radius:14px;width:100%;justify-content:center;margin-top:1.25rem}
 .action-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:1rem}
-
-/* ── Progress bar ── */
 .progress-bar{height:4px;background:var(--navy-light);border-radius:2px;margin-top:10px;overflow:hidden;display:none}
 .progress-bar.show{display:block}
 .progress-fill{height:100%;background:var(--amber);border-radius:2px;transition:width 1s ease;width:0%}
@@ -87,20 +85,74 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
 .tab-content{display:none;padding:2rem;min-height:280px}
 .tab-content.active{display:block}
 
-/* ── Notes ── */
+/* ── Notes general ── */
 .source-tag{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--sky);background:var(--navy);padding:4px 10px;border-radius:20px;margin-bottom:1rem}
 .notes-content{font-size:15px;line-height:1.8}
-.notes-content section{background:var(--off-white);border-radius:14px;padding:1.25rem 1.5rem;margin-bottom:1.25rem;border-left:4px solid var(--amber)}
-.notes-content h2{font-family:'Fraunces',serif;font-size:1.1rem;margin-bottom:.75rem;color:var(--navy)}
-.notes-content h3{font-size:.95rem;font-weight:600;margin:.75rem 0 .4rem;color:var(--navy-light)}
-.notes-content ul,.notes-content ol{padding-left:1.4rem;margin:.4rem 0}
-.notes-content li{margin-bottom:5px}
-.notes-content p{margin-bottom:.5rem}
+.notes-content section{background:var(--off-white);border-radius:14px;padding:1.5rem;margin-bottom:1.5rem;border-left:4px solid var(--amber)}
+.notes-content h2{font-family:'Fraunces',serif;font-size:1.15rem;margin-bottom:1rem;color:var(--navy)}
+.notes-content h3{font-size:1rem;font-weight:600;margin:1.25rem 0 .5rem;color:var(--navy-light);border-bottom:1px solid var(--border);padding-bottom:4px}
+.notes-content ul,.notes-content ol{padding-left:1.5rem;margin:.5rem 0}
+.notes-content li{margin-bottom:6px}
+.notes-content p{margin-bottom:.6rem}
 .notes-content .memory-tricks{border-left-color:var(--mint);background:#f0fcfa}
 .notes-content .important-formulas{border-left-color:var(--sky);background:#f0f7ff}
 .notes-content .quick-summary{border-left-color:var(--coral);background:#fff5f5}
 .notes-content .infographic{border-left-color:var(--amber);background:var(--amber-pale)}
 .notes-toolbar{display:flex;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap}
+
+/* ── Notes tables ── */
+.notes-table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:14px}
+.notes-table th{background:var(--navy);color:var(--sky-light);padding:10px 14px;text-align:left;font-weight:500;font-size:13px;white-space:nowrap}
+.notes-table td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top;line-height:1.6}
+.notes-table tr:nth-child(even) td{background:rgba(91,164,207,.05)}
+.notes-table tr:hover td{background:var(--amber-pale)}
+
+/* ── Derivation block ── */
+.derivation-block{background:var(--white);border:2px solid var(--sky);border-radius:12px;padding:1.25rem;margin:1rem 0}
+.derivation-title{font-weight:600;color:var(--sky);font-size:14px;margin-bottom:.75rem;text-transform:uppercase;letter-spacing:.04em}
+.derivation-steps{display:flex;flex-direction:column;gap:8px;margin-bottom:.75rem}
+.d-step{display:flex;align-items:flex-start;gap:10px}
+.d-num{width:24px;height:24px;background:var(--sky);color:var(--white);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex-shrink:0;margin-top:2px}
+.d-text{font-size:14px;font-family:'JetBrains Mono',monospace;line-height:1.6}
+.derivation-result{background:var(--navy);color:var(--amber);padding:10px 16px;border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:600;text-align:center}
+
+/* ── Numerical block ── */
+.numerical-block{background:var(--white);border:2px solid var(--mint);border-radius:12px;padding:1.25rem;margin:1rem 0}
+.num-title{font-weight:600;color:var(--mint);font-size:13px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.75rem}
+.num-given,.num-find,.num-formula,.num-working{font-size:14px;margin-bottom:.5rem;padding:6px 10px;border-radius:6px;line-height:1.6}
+.num-given{background:#f0fcfa}
+.num-find{background:#f0f7ff}
+.num-formula{background:var(--amber-pale);font-family:'JetBrains Mono',monospace}
+.num-working{background:var(--off-white);font-family:'JetBrains Mono',monospace;white-space:pre-wrap}
+.num-answer{background:var(--navy);color:var(--amber);padding:10px 16px;border-radius:8px;font-weight:700;font-size:15px;text-align:center;margin-top:.5rem}
+
+/* ── Experiment block ── */
+.experiment-block{background:var(--white);border:2px solid #9b59b6;border-radius:12px;padding:1.25rem;margin:1rem 0}
+.exp-row{display:flex;gap:12px;margin-bottom:.75rem;align-items:flex-start}
+.exp-label{font-size:12px;font-weight:700;color:#6c3483;text-transform:uppercase;letter-spacing:.05em;min-width:130px;padding-top:2px;flex-shrink:0}
+.exp-content{font-size:14px;line-height:1.6}
+.exp-steps{padding-left:1.2rem;margin:0}
+.exp-steps li{margin-bottom:4px;font-size:14px}
+
+/* ── Diagram box ── */
+.diagram-box{background:var(--white);border:2px dashed var(--border);border-radius:12px;padding:1.25rem;margin:1rem 0}
+.diagram-title{font-weight:600;color:var(--text-muted);font-size:13px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:1rem;display:flex;align-items:center;gap:8px}
+.diagram-title::before{content:'📊';font-size:16px}
+.diagram-description{font-size:14px;line-height:1.6}
+.diagram-labels{display:flex;flex-direction:column;gap:6px;margin-top:.75rem}
+.diagram-part{display:flex;align-items:flex-start;gap:10px;padding:6px 10px;background:var(--off-white);border-radius:6px}
+.part-num{width:22px;height:22px;background:var(--navy);color:var(--amber);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+.part-name{font-weight:600;font-size:13px;min-width:120px}
+.part-desc{font-size:13px;color:var(--text-muted)}
+
+/* ── Formula + mnemonic ── */
+.formula-box{background:var(--white);border:2px solid var(--sky);border-radius:12px;padding:12px 16px;margin:8px 0;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.formula-title{font-size:12px;font-weight:600;color:var(--sky);text-transform:uppercase;letter-spacing:.05em;min-width:140px}
+.formula-eq{font-size:15px;font-weight:600;color:var(--navy);background:#f0f7ff;padding:7px 14px;border-radius:8px;font-family:'JetBrains Mono',monospace}
+.mnemonic-row{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.mnemonic-box{display:inline-flex;align-items:center;gap:8px;background:var(--amber-pale);border:1.5px solid var(--amber);border-radius:10px;padding:6px 12px}
+.mnemonic-letter{width:30px;height:30px;background:var(--amber);color:var(--navy);border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0}
+.mnemonic-word{font-size:13px;color:var(--text-dark);font-weight:500}
 
 /* ── Concept map ── */
 .concept-map{display:flex;flex-direction:column;align-items:center;gap:1rem;padding:1rem 0}
@@ -117,41 +169,36 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
 .cm-children{display:flex;flex-direction:column;gap:5px;align-items:center;padding-top:6px;border-top:1px solid var(--border);width:100%}
 .cm-child{background:var(--white);border:1px solid var(--border);border-radius:8px;padding:4px 10px;font-size:12px;color:var(--text-dark);text-align:center;width:100%}
 
-/* ── Formula + mnemonic boxes ── */
-.formula-box{background:var(--white);border:2px solid var(--sky);border-radius:12px;padding:12px 16px;margin:8px 0;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-.formula-title{font-size:12px;font-weight:600;color:var(--sky);text-transform:uppercase;letter-spacing:.05em;min-width:120px}
-.formula-eq{font-size:15px;font-weight:600;color:var(--navy);background:#f0f7ff;padding:6px 14px;border-radius:8px;font-family:monospace}
-.mnemonic-row{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
-.mnemonic-box{display:inline-flex;align-items:center;gap:8px;background:var(--amber-pale);border:1.5px solid var(--amber);border-radius:10px;padding:6px 12px}
-.mnemonic-letter{width:30px;height:30px;background:var(--amber);color:var(--navy);border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0}
-.mnemonic-word{font-size:13px;color:var(--text-dark);font-weight:500}
-
-/* ── Question tabs ── */
+/* ── Question types ── */
 .diff-tabs{display:flex;gap:6px;flex-wrap:wrap}
 .diff-btn{padding:6px 13px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;border:1.5px solid var(--border);background:transparent;color:var(--text-muted);transition:all .2s}
 .diff-btn.active{background:var(--navy);border-color:var(--navy);color:var(--amber)}
 .questions-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;flex-wrap:wrap;gap:.75rem}
-
-/* ── Question cards ── */
 .q-card{background:var(--off-white);border-radius:12px;padding:1.1rem;margin-bottom:.9rem;border:1px solid var(--border);cursor:pointer;transition:all .2s}
 .q-card:hover{border-color:var(--amber);box-shadow:0 2px 12px rgba(245,166,35,.1)}
 .q-num{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:7px}
 .q-text{font-size:14px;font-weight:500;line-height:1.6}
 .q-options{display:flex;flex-direction:column;gap:5px;margin-top:8px}
-.q-option{font-size:13px;padding:6px 10px;background:var(--white);border-radius:6px;border:1px solid var(--border)}
-.q-answer{display:none;margin-top:10px;padding:10px 12px;background:var(--white);border-radius:8px;border-left:3px solid var(--mint);font-size:13px;line-height:1.7;color:#1a3d37}
+.q-option{font-size:13px;padding:7px 12px;background:var(--white);border-radius:6px;border:1px solid var(--border);line-height:1.5}
+.q-answer{display:none;margin-top:12px;padding:12px 14px;background:var(--white);border-radius:8px;border-left:3px solid var(--mint);font-size:13px;line-height:1.8;color:#1a3d37}
 .q-card.open .q-answer{display:block}
-.q-explain{font-size:12px;color:var(--text-muted);display:block;margin-top:4px}
-.q-marks{font-size:11px;color:var(--sky);font-weight:600;margin-top:4px}
-.blank{display:inline-block;min-width:70px;border-bottom:2px solid var(--navy);margin:0 3px;background:var(--off-white);border-radius:2px;color:transparent}
-.q-assertion{font-size:14px;padding:8px 12px;background:#fff8e8;border-left:3px solid var(--amber);border-radius:4px;margin-bottom:6px}
-.q-reason{font-size:14px;padding:8px 12px;background:#f0f7ff;border-left:3px solid var(--sky);border-radius:4px;margin-bottom:8px}
-.q-ar-choices{font-size:12px;color:var(--text-muted);display:flex;flex-direction:column;gap:3px;margin-top:6px}
+.q-explain{font-size:12px;color:var(--text-muted);display:block;margin-top:5px}
+.q-marks{font-size:11px;color:var(--sky);font-weight:600;margin-top:5px;display:inline-block;background:#f0f7ff;padding:2px 8px;border-radius:10px}
+.blank{display:inline-block;min-width:80px;border-bottom:2px solid var(--navy);margin:0 4px;background:var(--off-white);border-radius:2px;color:transparent}
+.q-assertion{font-size:14px;padding:10px 14px;background:#fff8e8;border-left:3px solid var(--amber);border-radius:6px;margin-bottom:8px;line-height:1.6}
+.q-reason{font-size:14px;padding:10px 14px;background:#f0f7ff;border-left:3px solid var(--sky);border-radius:6px;margin-bottom:10px;line-height:1.6}
+.q-ar-choices{font-size:12px;color:var(--text-muted);display:flex;flex-direction:column;gap:4px;margin-top:6px;padding:8px 12px;background:var(--off-white);border-radius:6px}
+
+/* ── Answer tables ── */
+.ans-table{width:100%;border-collapse:collapse;margin:8px 0;font-size:13px}
+.ans-table th{background:var(--navy);color:var(--sky-light);padding:8px 12px;text-align:left;font-weight:500;font-size:12px}
+.ans-table td{padding:8px 12px;border:1px solid var(--border);vertical-align:top;line-height:1.5}
+.ans-table tr:nth-child(even) td{background:#f8f6f0}
 
 /* ── Bank table ── */
 .bank-table{width:100%;border-collapse:collapse;font-size:13px}
 .bank-table th{background:var(--navy);color:var(--sky-light);padding:10px 12px;text-align:left;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
-.bank-table td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+.bank-table td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:top;line-height:1.5}
 .bank-table tr:hover td{background:var(--amber-pale)}
 .diff-pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10px;font-weight:600;text-transform:uppercase}
 .diff-pill.easy{background:#d4f5ec;color:#0f6e5a}
@@ -169,18 +216,16 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
 .ask-answer{margin-top:1rem;padding:1rem;background:var(--navy-light);border-radius:10px;color:var(--sky-light);font-size:14px;line-height:1.7;display:none}
 .ask-answer.show{display:block}
 
-/* ── Loader ── */
+/* ── Loader / Toast / Empty ── */
 .loader-overlay{display:none;position:fixed;inset:0;background:rgba(15,27,45,.82);z-index:1000;align-items:center;justify-content:center;flex-direction:column;gap:1.25rem}
 .loader-overlay.show{display:flex}
 .spinner{width:52px;height:52px;border:4px solid rgba(245,166,35,.3);border-top-color:var(--amber);border-radius:50%;animation:spin .9s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.loader-text{color:var(--white);font-size:16px;font-weight:500}
+.loader-text{color:var(--white);font-size:16px;font-weight:500;text-align:center}
 .loader-steps{display:flex;flex-direction:column;gap:8px}
-.loader-step{color:rgba(197,223,245,.5);font-size:13px;display:flex;align-items:center;gap:8px;transition:color .3s}
+.loader-step{color:rgba(197,223,245,.4);font-size:13px;display:flex;align-items:center;gap:8px;transition:color .3s}
 .loader-step.active{color:var(--amber)}
 .loader-step.done{color:var(--mint)}
-
-/* ── Empty + Toast ── */
 .empty-state{text-align:center;padding:2.5rem;color:var(--text-muted)}
 .empty-state .ei{font-size:2.5rem;margin-bottom:.75rem}
 .empty-state h3{font-family:'Fraunces',serif;margin-bottom:.4rem;color:var(--navy)}
@@ -193,32 +238,32 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
 @media print{
   body *{visibility:hidden}
   #print-area,#print-area *{visibility:visible}
-  #print-area{position:absolute;left:0;top:0;width:100%;font-family:'DM Sans',sans-serif;font-size:13pt;color:#000}
+  #print-area{position:absolute;left:0;top:0;width:100%;font-family:'DM Sans',sans-serif;font-size:12pt;color:#000}
   .print-header{border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:20px}
-  .print-header h1{font-size:20pt;margin-bottom:4px}
+  .print-header h1{font-size:18pt;margin-bottom:4px}
   .print-header .meta{font-size:10pt;color:#555}
-  .print-section{page-break-inside:avoid;margin-bottom:20px;padding:14px;border:1px solid #ccc;border-radius:6px}
-  .print-section h2{font-size:14pt;margin-bottom:8px;border-bottom:1px solid #ddd;padding-bottom:6px}
-  h3{font-size:12pt;margin:8px 0 4px}
-  ul,ol{padding-left:18px}
-  li{margin-bottom:4px}
-  table{width:100%;border-collapse:collapse;font-size:11pt}
-  th{background:#eee!important;padding:7px;border:1px solid #ccc;text-align:left;font-size:10pt}
-  td{padding:7px;border:1px solid #ddd;vertical-align:top}
-  tr:nth-child(even) td{background:#fafafa}
-  @page{margin:18mm;size:A4}
+  .print-section{page-break-inside:avoid;margin-bottom:20px;padding:12px;border:1px solid #ccc;border-radius:4px}
+  .print-section h2{font-size:13pt;margin-bottom:8px;border-bottom:1px solid #ddd;padding-bottom:5px}
+  h3{font-size:11pt;margin:8px 0 4px}
+  ul,ol{padding-left:16px}
+  li{margin-bottom:3px}
+  table{width:100%;border-collapse:collapse;font-size:10pt;margin:6px 0}
+  th{background:#eee!important;padding:6px 8px;border:1px solid #aaa;text-align:left;font-size:9pt}
+  td{padding:6px 8px;border:1px solid #ccc;vertical-align:top}
+  tr:nth-child(even) td{background:#f5f5f5}
+  p{margin-bottom:4px;line-height:1.5}
+  @page{margin:15mm;size:A4}
 }
 </style>
 </head>
 <body>
 <div id="print-area" style="display:none"></div>
-
 <div class="loader-overlay" id="loader">
   <div class="spinner"></div>
-  <div class="loader-text" id="loader-text">Generating everything for you…</div>
+  <div class="loader-text" id="loader-text">Generating ICSE-quality content…</div>
   <div class="loader-steps">
-    <div class="loader-step" id="step1">📚 Creating study notes…</div>
-    <div class="loader-step" id="step2">❓ Building practice questions…</div>
+    <div class="loader-step" id="step1">📚 Creating detailed notes with numericals…</div>
+    <div class="loader-step" id="step2">❓ Building 7 types of ICSE questions…</div>
     <div class="loader-step" id="step3">🏦 Compiling question bank…</div>
   </div>
 </div>
@@ -235,7 +280,7 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
 <div class="hero">
   <div class="hero-content">
     <h1>Your Personal<br><em>AI Study Companion</em></h1>
-    <p>Select grade, subject &amp; topic — get notes, 7 types of questions &amp; a full question bank, all printable as PDF.</p>
+    <p>ICSE/ISC curriculum-aligned notes with SI units, derivations, numericals, experiments &amp; all 7 question types — printable as PDF.</p>
   </div>
 </div>
 
@@ -258,7 +303,7 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
     </div>
     <div class="form-group">
       <label>Chapter / Topic</label>
-      <input type="text" id="topic" placeholder="e.g. Photosynthesis, Quadratic Equations…">
+      <input type="text" id="topic" placeholder="e.g. Force and Laws of Motion, Photosynthesis…">
     </div>
   </div>
 
@@ -270,7 +315,7 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
     <div class="drop-sub">JPG, PNG, WEBP or PDF · up to 20MB each</div>
   </div>
   <div class="file-list" id="fileList"></div>
-  <p class="upload-hint">💡 No files? Just enter grade + subject + topic and click Generate — AI builds everything instantly.</p>
+  <p class="upload-hint">💡 Enter grade + subject + topic — AI generates ICSE-standard notes with SI units, derivations, experiments &amp; solved numericals.</p>
 
   <button class="btn btn-primary btn-big" id="generateBtn" onclick="generateAll()">
     ✨ Generate Notes + Questions + Question Bank
@@ -287,7 +332,6 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
     <button class="tab-btn" onclick="switchTab('bank',this)">🏦 Question Bank</button>
   </div>
 
-  <!-- Notes -->
   <div class="tab-content active" id="tab-notes">
     <div id="notes-empty" class="empty-state">
       <div class="ei">📖</div><h3>No notes yet</h3>
@@ -302,7 +346,7 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
       <div class="ask-box">
         <h3>💬 Ask me anything about these notes</h3>
         <div class="ask-row">
-          <input type="text" id="askInput" placeholder="e.g. Explain this in simpler words…" onkeydown="if(event.key==='Enter')askQuestion()">
+          <input type="text" id="askInput" placeholder="e.g. Explain the derivation in simpler steps…" onkeydown="if(event.key==='Enter')askQuestion()">
           <button class="btn btn-primary" onclick="askQuestion()">Ask ↗</button>
         </div>
         <div class="ask-answer" id="askAnswer"></div>
@@ -310,15 +354,14 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
     </div>
   </div>
 
-  <!-- Questions -->
   <div class="tab-content" id="tab-questions">
     <div id="q-empty" class="empty-state">
       <div class="ei">❓</div><h3>No questions yet</h3>
-      <p>Click Generate above to populate all 7 question types at once</p>
+      <p>Click Generate above to populate all 7 ICSE question types at once</p>
     </div>
     <div id="q-output" style="display:none">
       <div class="questions-header">
-        <div class="panel-title" style="margin:0">❓ Practice Questions</div>
+        <div class="panel-title" style="margin:0">❓ ICSE Practice Questions</div>
         <div class="diff-tabs" id="main-q-tabs">
           <button class="diff-btn active" data-diff="mcq"             onclick="filterQ('mcq',this,'main')">🔵 MCQ</button>
           <button class="diff-btn"        data-diff="fillinblanks"    onclick="filterQ('fillinblanks',this,'main')">✏️ Fill Blanks</button>
@@ -336,20 +379,21 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
     </div>
   </div>
 
-  <!-- Bank -->
   <div class="tab-content" id="tab-bank">
     <div id="bank-empty" class="empty-state">
       <div class="ei">🏦</div><h3>No question bank yet</h3>
-      <p>Click Generate above to create everything at once</p>
+      <p>Click Generate above — bank includes numericals, experiments, and tabular questions</p>
     </div>
     <div id="bank-output" style="display:none">
       <div style="margin-bottom:1rem">
         <button class="btn btn-pdf" onclick="printBank()">🖨️ Print Question Bank as PDF</button>
       </div>
-      <table class="bank-table">
-        <thead><tr><th>#</th><th>Type</th><th>Question</th><th>Level</th><th>Answer</th><th>Marks</th></tr></thead>
-        <tbody id="bank-tbody"></tbody>
-      </table>
+      <div style="overflow-x:auto">
+        <table class="bank-table">
+          <thead><tr><th>#</th><th>Type</th><th>Question</th><th>Level</th><th>Answer</th><th>Marks</th></tr></thead>
+          <tbody id="bank-tbody"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
@@ -359,7 +403,7 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
   <div class="panel-title">✏️ Generate Practice Questions Only
     <span style="font-size:12px;font-weight:400;color:var(--text-muted);margin-left:6px">for any topic, chapter or subject</span>
   </div>
-  <p style="font-size:13px;color:var(--text-muted);margin-bottom:1.25rem">Don't need full notes? Generate all 7 question types on any topic instantly.</p>
+  <p style="font-size:13px;color:var(--text-muted);margin-bottom:1.25rem">Generate all 7 ICSE question types on any topic instantly — including numericals, experiments, and tabular answers.</p>
 
   <div class="form-grid">
     <div class="form-group">
@@ -375,7 +419,7 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
     </div>
     <div class="form-group">
       <label>Topic / Chapter</label>
-      <input type="text" id="qTopic" placeholder="e.g. Respiration, Laws of Motion…">
+      <input type="text" id="qTopic" placeholder="e.g. Ohm's Law, Respiration…">
     </div>
   </div>
 
@@ -385,7 +429,7 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
 
   <div id="qonly-output" style="display:none;margin-top:1.5rem">
     <div class="questions-header">
-      <div class="panel-title" style="margin:0">Practice Questions</div>
+      <div class="panel-title" style="margin:0">ICSE Practice Questions</div>
       <div class="diff-tabs" id="solo-q-tabs">
         <button class="diff-btn active" data-diff="mcq"             onclick="filterQ('mcq',this,'solo')">🔵 MCQ</button>
         <button class="diff-btn"        data-diff="fillinblanks"    onclick="filterQ('fillinblanks',this,'solo')">✏️ Fill Blanks</button>
@@ -406,369 +450,215 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
 </div><!-- /app-body -->
 
 <script>
-// ── Correct ICSE / ISC Subject Map ────────────────────────────────────────────
+// ── ICSE Subject Map ──────────────────────────────────────────────────────────
 const SUBJECTS = {
-  'Grade 6': [
-    'Mathematics','Physics','Chemistry','Biology',
-    'English Language','English Literature',
-    'History & Civics','Geography',
-    'Hindi','Computer Applications'
-  ],
-  'Grade 7': [
-    'Mathematics','Physics','Chemistry','Biology',
-    'English Language','English Literature',
-    'History & Civics','Geography',
-    'Hindi','Computer Applications'
-  ],
-  'Grade 8': [
-    'Mathematics','Physics','Chemistry','Biology',
-    'English Language','English Literature',
-    'History & Civics','Geography',
-    'Hindi','Computer Applications'
-  ],
-  'Grade 9': [
-    'Mathematics','Physics','Chemistry','Biology',
-    'English Language','English Literature',
-    'History & Civics','Geography',
-    'Hindi','Computer Applications',
-    'Economics','Commercial Studies','Environmental Science'
-  ],
-  'Grade 10': [
-    'Mathematics','Physics','Chemistry','Biology',
-    'English Language','English Literature',
-    'History & Civics','Geography',
-    'Hindi','Computer Applications',
-    'Economics','Commercial Studies','Environmental Science'
-  ],
-  'Grade 11 (ISC)': [
-    'Mathematics','Physics','Chemistry','Biology',
-    'English','Hindi','Computer Science',
-    'Accounts','Business Studies','Economics',
-    'Psychology','Sociology','Political Science',
-    'Physical Education','Environmental Science'
-  ],
-  'Grade 12 (ISC)': [
-    'Mathematics','Physics','Chemistry','Biology',
-    'English','Hindi','Computer Science',
-    'Accounts','Business Studies','Economics',
-    'Psychology','Sociology','Political Science',
-    'Physical Education','Environmental Science'
-  ]
+  'Grade 6':  ['Mathematics','Physics','Chemistry','Biology','English Language','English Literature','History & Civics','Geography','Hindi','Computer Applications'],
+  'Grade 7':  ['Mathematics','Physics','Chemistry','Biology','English Language','English Literature','History & Civics','Geography','Hindi','Computer Applications'],
+  'Grade 8':  ['Mathematics','Physics','Chemistry','Biology','English Language','English Literature','History & Civics','Geography','Hindi','Computer Applications'],
+  'Grade 9':  ['Mathematics','Physics','Chemistry','Biology','English Language','English Literature','History & Civics','Geography','Hindi','Computer Applications','Economics','Commercial Studies','Environmental Science'],
+  'Grade 10': ['Mathematics','Physics','Chemistry','Biology','English Language','English Literature','History & Civics','Geography','Hindi','Computer Applications','Economics','Commercial Studies','Environmental Science'],
+  'Grade 11 (ISC)': ['Mathematics','Physics','Chemistry','Biology','English','Hindi','Computer Science','Accounts','Business Studies','Economics','Psychology','Sociology','Political Science','Physical Education','Environmental Science'],
+  'Grade 12 (ISC)': ['Mathematics','Physics','Chemistry','Biology','English','Hindi','Computer Science','Accounts','Business Studies','Economics','Psychology','Sociology','Political Science','Physical Education','Environmental Science']
 };
 
 function updateSubjects(gradeId, subjectId) {
-  const grade = document.getElementById(gradeId).value;
-  const sel   = document.getElementById(subjectId);
-  sel.innerHTML = (SUBJECTS[grade] || []).map(s => `<option value="${s}">${s}</option>`).join('');
+  const g = document.getElementById(gradeId).value;
+  const s = document.getElementById(subjectId);
+  s.innerHTML = (SUBJECTS[g]||[]).map(x=>`<option value="${x}">${x}</option>`).join('');
 }
 updateSubjects('grade','subject');
 updateSubjects('qGrade','qSubject');
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let selectedFiles = [], currentNotes = '', currentQuestions = {}, currentBank = [], qOnlyQuestions = {};
+let selectedFiles=[], currentNotes='', currentQuestions={}, currentBank=[], qOnlyQuestions={};
 
-// ── File handling ─────────────────────────────────────────────────────────────
-const dropzone = document.getElementById('dropzone');
-const fileInput = document.getElementById('fileInput');
-dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
-dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
-dropzone.addEventListener('drop', e => { e.preventDefault(); dropzone.classList.remove('dragover'); addFiles([...e.dataTransfer.files]); });
-fileInput.addEventListener('change', () => { addFiles([...fileInput.files]); fileInput.value=''; });
-
-function addFiles(f) {
-  f.forEach(x => { if (!selectedFiles.find(y => y.name===x.name && y.size===x.size)) selectedFiles.push(x); });
-  renderFiles();
-}
-function renderFiles() {
-  document.getElementById('fileList').innerHTML = selectedFiles.map((f,i) =>
-    `<div class="file-chip">${f.type.includes('pdf')?'📄':'🖼️'} ${f.name.length>22?f.name.slice(0,20)+'…':f.name}
-     <button onclick="removeFile(${i})">✕</button></div>`).join('');
-}
-function removeFile(i) { selectedFiles.splice(i,1); renderFiles(); }
-
-function clearAll() {
-  selectedFiles=[]; currentNotes=''; currentQuestions={}; currentBank=[];
-  renderFiles();
-  ['notes','q','bank'].forEach(id => {
-    document.getElementById(id+'-empty').style.display='';
-    document.getElementById(id+'-output').style.display='none';
-  });
-}
+// ── Files ─────────────────────────────────────────────────────────────────────
+const dz=document.getElementById('dropzone'), fi=document.getElementById('fileInput');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('dragover')});
+dz.addEventListener('dragleave',()=>dz.classList.remove('dragover'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('dragover');addFiles([...e.dataTransfer.files])});
+fi.addEventListener('change',()=>{addFiles([...fi.files]);fi.value='';});
+function addFiles(f){f.forEach(x=>{if(!selectedFiles.find(y=>y.name===x.name&&y.size===x.size))selectedFiles.push(x)});renderFiles();}
+function renderFiles(){document.getElementById('fileList').innerHTML=selectedFiles.map((f,i)=>`<div class="file-chip">${f.type.includes('pdf')?'📄':'🖼️'} ${f.name.length>22?f.name.slice(0,20)+'…':f.name}<button onclick="removeFile(${i})">✕</button></div>`).join('');}
+function removeFile(i){selectedFiles.splice(i,1);renderFiles();}
+function clearAll(){selectedFiles=[];currentNotes='';currentQuestions={};currentBank=[];renderFiles();['notes','q','bank'].forEach(id=>{document.getElementById(id+'-empty').style.display='';document.getElementById(id+'-output').style.display='none';});}
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
-function switchTab(id, btn) {
-  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('tab-'+id).classList.add('active');
-  btn.classList.add('active');
-}
+function switchTab(id,btn){document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active');btn.classList.add('active');}
 
-// ── Loader / Toast ────────────────────────────────────────────────────────────
-function showLoader(msg) {
-  document.getElementById('loader-text').textContent = msg || 'Generating everything for you…';
-  ['step1','step2','step3'].forEach(id => document.getElementById(id).className='loader-step');
+// ── Loader/Toast ──────────────────────────────────────────────────────────────
+function showLoader(msg){
+  document.getElementById('loader-text').textContent=msg||'Generating ICSE-quality content…';
+  ['step1','step2','step3'].forEach(id=>document.getElementById(id).className='loader-step');
   document.getElementById('step1').classList.add('active');
   document.getElementById('loader').classList.add('show');
-  setTimeout(()=>{ document.getElementById('step1').className='loader-step done'; document.getElementById('step2').classList.add('active'); },4000);
-  setTimeout(()=>{ document.getElementById('step2').className='loader-step done'; document.getElementById('step3').classList.add('active'); },8000);
+  setTimeout(()=>{document.getElementById('step1').className='loader-step done';document.getElementById('step2').classList.add('active');},5000);
+  setTimeout(()=>{document.getElementById('step2').className='loader-step done';document.getElementById('step3').classList.add('active');},10000);
 }
-function hideLoader() { document.getElementById('loader').classList.remove('show'); }
-function showToast(msg, err) {
-  const t = document.getElementById('toast');
-  t.textContent=msg; t.className='toast show'+(err?' error':'');
-  setTimeout(()=>t.className='toast',4000);
-}
+function hideLoader(){document.getElementById('loader').classList.remove('show');}
+function showToast(msg,err){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(err?' error':'');setTimeout(()=>t.className='toast',4000);}
 
 // ── Generate All ──────────────────────────────────────────────────────────────
-async function generateAll() {
-  const topic = document.getElementById('topic').value.trim();
-  if (!selectedFiles.length && !topic) { showToast('Please enter a topic or upload files!',true); return; }
-
-  const btn = document.getElementById('generateBtn');
-  btn.disabled=true;
-  const pb = document.getElementById('progressBar');
-  const pf = document.getElementById('progressFill');
-  pb.classList.add('show'); pf.style.width='0%';
-  showLoader('🧠 Generating notes, questions and question bank…');
-
-  let prog=0;
-  const timer = setInterval(()=>{ prog=Math.min(prog+1.5,88); pf.style.width=prog+'%'; },600);
-
-  const fd = new FormData();
+async function generateAll(){
+  const topic=document.getElementById('topic').value.trim();
+  if(!selectedFiles.length&&!topic){showToast('Please enter a topic or upload files!',true);return;}
+  const btn=document.getElementById('generateBtn');btn.disabled=true;
+  const pb=document.getElementById('progressBar'),pf=document.getElementById('progressFill');
+  pb.classList.add('show');pf.style.width='0%';
+  showLoader('🧠 Generating ICSE-standard notes with numericals & experiments…');
+  let prog=0;const timer=setInterval(()=>{prog=Math.min(prog+1,88);pf.style.width=prog+'%';},700);
+  const fd=new FormData();
   selectedFiles.forEach(f=>fd.append('files',f));
-  fd.append('subject', document.getElementById('subject').value);
-  fd.append('topic',   topic);
-  fd.append('grade',   document.getElementById('grade').value);
-
-  try {
-    const res  = await fetch('/api/generate-all', { method:'POST', body:fd });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.error);
-
-    clearInterval(timer); pf.style.width='100%';
-
+  fd.append('subject',document.getElementById('subject').value);
+  fd.append('topic',topic);
+  fd.append('grade',document.getElementById('grade').value);
+  try{
+    const res=await fetch('/api/generate-all',{method:'POST',body:fd});
+    const data=await res.json();
+    if(!data.success)throw new Error(data.error);
+    clearInterval(timer);pf.style.width='100%';
     // Notes
-    currentNotes = data.notes;
-    const tag = `<div class="source-tag">${data.fromTopic?'🌐 AI-generated from curriculum knowledge':'📄 From your uploaded files'}</div>`;
-    document.getElementById('notes-html').innerHTML = tag + data.notes;
+    currentNotes=data.notes;
+    const tag=`<div class="source-tag">${data.fromTopic?'🌐 AI-generated · ICSE curriculum aligned':'📄 From your uploaded files'}</div>`;
+    document.getElementById('notes-html').innerHTML=tag+data.notes;
     document.getElementById('notes-empty').style.display='none';
     document.getElementById('notes-output').style.display='block';
-
     // Questions
-    currentQuestions = data.questions || {};
-    renderQList('mcq', currentQuestions, 'q-list');
+    currentQuestions=data.questions||{};
+    renderQList('mcq',currentQuestions,'q-list');
     document.querySelectorAll('#main-q-tabs .diff-btn').forEach(b=>b.classList.remove('active'));
     document.querySelector('#main-q-tabs .diff-btn[data-diff="mcq"]').classList.add('active');
     document.getElementById('q-empty').style.display='none';
     document.getElementById('q-output').style.display='block';
-
     // Bank
-    currentBank = data.bank?.questions || [];
+    currentBank=data.bank?.questions||[];
     renderBank(currentBank);
     document.getElementById('bank-empty').style.display='none';
     document.getElementById('bank-output').style.display='block';
-
-    switchTab('notes', document.querySelector('.tab-btn'));
+    switchTab('notes',document.querySelector('.tab-btn'));
     showToast('✅ All done! Notes, questions and question bank ready.');
-  } catch(e) { clearInterval(timer); showToast(e.message,true); }
-  finally {
-    hideLoader(); btn.disabled=false;
-    setTimeout(()=>{ pb.classList.remove('show'); pf.style.width='0%'; },1200);
-  }
+  }catch(e){clearInterval(timer);showToast(e.message,true);}
+  finally{hideLoader();btn.disabled=false;setTimeout(()=>{pb.classList.remove('show');pf.style.width='0%';},1200);}
 }
 
 // ── Standalone questions ──────────────────────────────────────────────────────
-async function generateQuestionsOnly() {
-  const topic = document.getElementById('qTopic').value.trim();
-  if (!topic) { showToast('Please enter a topic!',true); return; }
-
-  const btn = document.getElementById('qOnlyBtn');
-  btn.disabled=true; btn.textContent='⏳ Generating…';
-  showLoader('✏️ Generating all 7 question types…');
-  document.getElementById('step1').textContent='🔵 MCQ + Fill in Blanks…';
-  document.getElementById('step2').textContent='✅ True/False + Odd One Out…';
-  document.getElementById('step3').textContent='💡 Assertion-Reason + Short + Long…';
-
-  try {
-    const res  = await fetch('/api/questions-only', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        grade:   document.getElementById('qGrade').value,
-        subject: document.getElementById('qSubject').value,
-        topic
-      })
-    });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.error);
-
-    qOnlyQuestions = data.questions || {};
-    renderQList('mcq', qOnlyQuestions, 'qonly-list');
+async function generateQuestionsOnly(){
+  const topic=document.getElementById('qTopic').value.trim();
+  if(!topic){showToast('Please enter a topic!',true);return;}
+  const btn=document.getElementById('qOnlyBtn');btn.disabled=true;btn.textContent='⏳ Generating…';
+  showLoader('✏️ Generating all 7 ICSE question types…');
+  try{
+    const res=await fetch('/api/questions-only',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({grade:document.getElementById('qGrade').value,subject:document.getElementById('qSubject').value,topic})});
+    const data=await res.json();
+    if(!data.success)throw new Error(data.error);
+    qOnlyQuestions=data.questions||{};
+    renderQList('mcq',qOnlyQuestions,'qonly-list');
     document.querySelectorAll('#solo-q-tabs .diff-btn').forEach(b=>b.classList.remove('active'));
     document.querySelector('#solo-q-tabs .diff-btn[data-diff="mcq"]').classList.add('active');
     document.getElementById('qonly-output').style.display='block';
     document.getElementById('qonly-output').scrollIntoView({behavior:'smooth'});
-    showToast('✅ All 7 question types ready!');
-  } catch(e) { showToast(e.message,true); }
-  finally {
-    hideLoader(); btn.disabled=false; btn.textContent='✏️ Generate Practice Questions';
-  }
+    showToast('✅ All 7 ICSE question types ready!');
+  }catch(e){showToast(e.message,true);}
+  finally{hideLoader();btn.disabled=false;btn.textContent='✏️ Generate Practice Questions';}
 }
 
-// ── Question filter ───────────────────────────────────────────────────────────
-function filterQ(type, btn, panel) {
-  const tabsId  = panel==='main' ? '#main-q-tabs' : '#solo-q-tabs';
-  const listId  = panel==='main' ? 'q-list'       : 'qonly-list';
-  const dataset = panel==='main' ? currentQuestions : qOnlyQuestions;
+// ── Filter tabs ───────────────────────────────────────────────────────────────
+function filterQ(type,btn,panel){
+  const tabsId=panel==='main'?'#main-q-tabs':'#solo-q-tabs';
+  const listId=panel==='main'?'q-list':'qonly-list';
+  const dataset=panel==='main'?currentQuestions:qOnlyQuestions;
   document.querySelectorAll(tabsId+' .diff-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
-  renderQList(type, dataset, listId);
+  renderQList(type,dataset,listId);
 }
 
-// ── Render question list ──────────────────────────────────────────────────────
-function renderQList(type, data, listId) {
-  const qs = data[type] || [];
-  if (!qs.length) {
-    document.getElementById(listId).innerHTML='<p style="color:var(--text-muted);text-align:center;padding:2rem">No questions generated for this type.</p>';
-    return;
-  }
-  document.getElementById(listId).innerHTML = qs.map((q,i) => {
-    let body='', answer='';
-    if (type==='mcq') {
+// ── Render questions ──────────────────────────────────────────────────────────
+function renderQList(type,data,listId){
+  const qs=data[type]||[];
+  if(!qs.length){document.getElementById(listId).innerHTML='<p style="color:var(--text-muted);text-align:center;padding:2rem">No questions generated for this type. Try generating again.</p>';return;}
+  document.getElementById(listId).innerHTML=qs.map((q,i)=>{
+    let body='',answer='';
+    if(type==='mcq'){
       const opts=(q.options||[]).map(o=>`<div class="q-option">${o}</div>`).join('');
       body=`<div class="q-text">${q.q}</div><div class="q-options">${opts}</div>`;
       answer=`✅ <strong>${q.a}</strong>${q.explanation?'<br><span class="q-explain">💡 '+q.explanation+'</span>':''}`;
-    } else if (type==='fillinblanks') {
+    }else if(type==='fillinblanks'){
       body=`<div class="q-text">${(q.q||'').replace(/_{2,}/g,'<span class="blank">________</span>')}</div>`;
       answer=`✅ <strong>${q.a}</strong>`;
-    } else if (type==='truefalse') {
+    }else if(type==='truefalse'){
       body=`<div class="q-text">${q.q}</div>`;
       answer=`${q.a==='True'?'✅':'❌'} <strong>${q.a}</strong>${q.explanation?'<br><span class="q-explain">💡 '+q.explanation+'</span>':''}`;
-    } else if (type==='oddonesout') {
+    }else if(type==='oddonesout'){
       body=`<div class="q-text">${q.q}</div>`;
       answer=`✅ <strong>${q.a}</strong>${q.explanation?'<br><span class="q-explain">💡 '+q.explanation+'</span>':''}`;
-    } else if (type==='assertionreason') {
-      body=`<div class="q-assertion"><strong>Assertion (A):</strong> ${q.assertion}</div>
-            <div class="q-reason"><strong>Reason (R):</strong> ${q.reason}</div>
-            <div class="q-ar-choices">
-              <div>A) Both A and R are true, and R is the correct explanation of A</div>
-              <div>B) Both A and R are true, but R is NOT the correct explanation of A</div>
-              <div>C) A is true but R is false</div>
-              <div>D) A is false but R is true</div>
-            </div>`;
+    }else if(type==='assertionreason'){
+      body=`<div class="q-assertion"><strong>Assertion (A):</strong> ${q.assertion}</div><div class="q-reason"><strong>Reason (R):</strong> ${q.reason}</div><div class="q-ar-choices"><div>A) Both A and R are true, and R is the correct explanation of A</div><div>B) Both A and R are true, but R is NOT the correct explanation of A</div><div>C) A is true but R is false</div><div>D) A is false but R is true</div></div>`;
       answer=`✅ <strong>${q.a}</strong>${q.explanation?'<br><span class="q-explain">💡 '+q.explanation+'</span>':''}`;
-    } else if (type==='shortanswer') {
-      body=`<div class="q-text">${q.q}</div><div class="q-marks">[${q.marks||2} marks]</div>`;
-      answer=q.a;
-    } else if (type==='longanswer') {
-      body=`<div class="q-text">${q.q}</div><div class="q-marks">[${q.marks||5} marks]</div>`;
-      answer=q.a;
+    }else if(type==='shortanswer'){
+      body=`<div class="q-text">${q.q}</div><span class="q-marks">${q.marks||2} marks</span>`;
+      answer=q.a||'';
+    }else if(type==='longanswer'){
+      body=`<div class="q-text">${q.q}</div><span class="q-marks">${q.marks||5} marks</span>`;
+      answer=q.a||'';
     }
-    return `<div class="q-card" onclick="this.classList.toggle('open')">
-      <div class="q-num">Q${i+1}</div>${body}
-      <div class="q-answer">${answer}</div>
-    </div>`;
+    return `<div class="q-card" onclick="this.classList.toggle('open')"><div class="q-num">Q${i+1}</div>${body}<div class="q-answer">${answer}</div></div>`;
   }).join('');
 }
 
-// ── Render bank ───────────────────────────────────────────────────────────────
-function renderBank(qs) {
-  document.getElementById('bank-tbody').innerHTML = qs.map((q,i)=>`
+// ── Bank ──────────────────────────────────────────────────────────────────────
+function renderBank(qs){
+  document.getElementById('bank-tbody').innerHTML=qs.map((q,i)=>`
     <tr>
-      <td style="color:var(--text-muted);font-size:11px">${i+1}</td>
+      <td style="color:var(--text-muted);font-size:11px;white-space:nowrap">${i+1}</td>
       <td><span class="type-pill">${q.type||'—'}</span></td>
-      <td>${q.question}</td>
+      <td style="min-width:200px">${q.question}</td>
       <td><span class="diff-pill ${q.difficulty||'medium'}">${q.difficulty||'—'}</span></td>
-      <td style="color:var(--text-muted);font-size:12px">${q.answer||'—'}</td>
-      <td style="font-size:11px;color:var(--sky);text-align:center">${q.marks||'—'}</td>
+      <td style="color:var(--text-muted);font-size:12px;min-width:120px">${q.answer||'—'}</td>
+      <td style="font-size:11px;color:var(--sky);text-align:center;white-space:nowrap">${q.marks||'—'}</td>
     </tr>`).join('');
 }
 
 // ── Ask ───────────────────────────────────────────────────────────────────────
-async function askQuestion() {
-  const q = document.getElementById('askInput').value.trim();
-  if (!q) return;
-  const btn = document.querySelector('.ask-box .btn-primary');
-  btn.disabled=true; btn.textContent='…';
-  try {
-    const res  = await fetch('/api/ask', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ question:q, context:document.getElementById('notes-html').innerText.slice(0,1200), grade:document.getElementById('grade').value })
-    });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.error);
-    const ans = document.getElementById('askAnswer');
-    ans.innerHTML = data.answer.replace(/\n/g,'<br>');
-    ans.classList.add('show');
+async function askQuestion(){
+  const q=document.getElementById('askInput').value.trim();if(!q)return;
+  const btn=document.querySelector('.ask-box .btn-primary');btn.disabled=true;btn.textContent='…';
+  try{
+    const res=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q,context:document.getElementById('notes-html').innerText.slice(0,1200),grade:document.getElementById('grade').value,subject:document.getElementById('subject').value})});
+    const data=await res.json();if(!data.success)throw new Error(data.error);
+    const ans=document.getElementById('askAnswer');
+    ans.innerHTML=data.answer.replace(/\n/g,'<br>');ans.classList.add('show');
     document.getElementById('askInput').value='';
-  } catch(e) { showToast(e.message,true); }
-  finally { btn.disabled=false; btn.textContent='Ask ↗'; }
+  }catch(e){showToast(e.message,true);}
+  finally{btn.disabled=false;btn.textContent='Ask ↗';}
 }
-
-function copyNotes() { navigator.clipboard.writeText(document.getElementById('notes-html').innerText); showToast('📋 Copied!'); }
+function copyNotes(){navigator.clipboard.writeText(document.getElementById('notes-html').innerText);showToast('📋 Copied!');}
 
 // ── PDF helpers ───────────────────────────────────────────────────────────────
-function getMainMeta() {
-  return `${document.getElementById('grade').value} · ${document.getElementById('subject').value} · ${document.getElementById('topic').value} | ${new Date().toLocaleDateString()}`;
-}
-function doPrint(html) {
-  const pa=document.getElementById('print-area');
-  pa.style.display='block'; pa.innerHTML=html;
-  setTimeout(()=>{ window.print(); pa.style.display='none'; },200);
-}
+function getMainMeta(){return `${document.getElementById('grade').value} · ${document.getElementById('subject').value} · ${document.getElementById('topic').value} | ${new Date().toLocaleDateString()}`;}
+function doPrint(html){const pa=document.getElementById('print-area');pa.style.display='block';pa.innerHTML=html;setTimeout(()=>{window.print();pa.style.display='none';},200);}
+function printNotes(){doPrint(`<div class="print-header"><h1>📚 StudyBot — Study Notes</h1><div class="meta">${getMainMeta()}</div></div>`+document.getElementById('notes-html').innerHTML);}
 
-function printNotes() {
-  doPrint(`<div class="print-header"><h1>📚 StudyBot — Study Notes</h1><div class="meta">${getMainMeta()}</div></div>`+document.getElementById('notes-html').innerHTML);
-}
-
-function buildQPrintHTML(data, meta) {
-  const types=[
-    {key:'mcq',label:'Multiple Choice Questions'},
-    {key:'fillinblanks',label:'Fill in the Blanks'},
-    {key:'truefalse',label:'True or False'},
-    {key:'oddonesout',label:'Odd One Out'},
-    {key:'assertionreason',label:'Assertion & Reason'},
-    {key:'shortanswer',label:'Short Answer Questions'},
-    {key:'longanswer',label:'Long Answer Questions'}
-  ];
-  let html=`<div class="print-header"><h1>📚 StudyBot — Practice Questions</h1><div class="meta">${meta}</div></div>`;
+function buildQPrint(data,meta){
+  const types=[{key:'mcq',label:'Section A: Multiple Choice'},{key:'fillinblanks',label:'Section B: Fill in the Blanks'},{key:'truefalse',label:'Section C: True or False'},{key:'oddonesout',label:'Section D: Odd One Out'},{key:'assertionreason',label:'Section E: Assertion & Reason'},{key:'shortanswer',label:'Section F: Short Answer'},{key:'longanswer',label:'Section G: Long Answer'}];
+  let html=`<div class="print-header"><h1>📚 StudyBot — ICSE Practice Questions</h1><div class="meta">${meta}</div></div>`;
   types.forEach(t=>{
-    const qs=data[t.key]||[];
-    if(!qs.length) return;
+    const qs=data[t.key]||[];if(!qs.length)return;
     html+=`<div class="print-section"><h2>${t.label}</h2>`;
     qs.forEach((q,i)=>{
-      if(t.key==='mcq'){
-        html+=`<p><strong>Q${i+1}.</strong> ${q.q}</p>`;
-        (q.options||[]).forEach(o=>{html+=`<p style="margin-left:16px">${o}</p>`;});
-        html+=`<p style="color:#2e7d32;margin-left:16px;margin-bottom:10px">Answer: ${q.a}${q.explanation?' — '+q.explanation:''}</p>`;
-      } else if(t.key==='assertionreason'){
-        html+=`<p><strong>Q${i+1}.</strong> Assertion: ${q.assertion}<br>Reason: ${q.reason}</p>`;
-        html+=`<p style="color:#2e7d32;margin-left:16px;margin-bottom:10px">Answer: ${q.a}</p>`;
-      } else {
-        const marks=q.marks?` [${q.marks} marks]`:'';
-        html+=`<p><strong>Q${i+1}.</strong>${marks} ${q.q||''}</p>`;
-        html+=`<p style="color:#2e7d32;margin-left:16px;margin-bottom:10px">Answer: ${q.a||''}${q.explanation?' — '+q.explanation:''}</p>`;
-      }
+      if(t.key==='mcq'){html+=`<p><strong>Q${i+1}.</strong> ${q.q}</p>`;(q.options||[]).forEach(o=>{html+=`<p style="margin-left:16px">${o}</p>`;});html+=`<p style="color:#2e7d32;margin-left:16px;margin-bottom:12px"><em>Answer: ${q.a}${q.explanation?' — '+q.explanation:''}</em></p>`;}
+      else if(t.key==='assertionreason'){html+=`<p><strong>Q${i+1}.</strong> Assertion: ${q.assertion}<br>Reason: ${q.reason}</p><p style="font-size:10pt;color:#555;margin-left:16px">A) Both true, R explains A &nbsp; B) Both true, R doesn't explain A &nbsp; C) A true R false &nbsp; D) A false R true</p><p style="color:#2e7d32;margin-left:16px;margin-bottom:12px"><em>Answer: ${q.a}</em></p>`;}
+      else{const marks=q.marks?` [${q.marks} marks]`:'';html+=`<p><strong>Q${i+1}.</strong>${marks} ${q.q||''}</p><p style="color:#2e7d32;margin-left:16px;margin-bottom:12px"><em>Answer: ${q.a||''}${q.explanation?' — '+q.explanation:''}</em></p>`;}
     });
     html+='</div>';
   });
   return html;
 }
-
-function printQuestions() { doPrint(buildQPrintHTML(currentQuestions, getMainMeta())); }
-
-function printQOnly() {
-  const meta=`${document.getElementById('qGrade').value} · ${document.getElementById('qSubject').value} · ${document.getElementById('qTopic').value} | ${new Date().toLocaleDateString()}`;
-  doPrint(buildQPrintHTML(qOnlyQuestions, meta));
-}
-
-function printBank() {
-  let html=`<div class="print-header"><h1>📚 StudyBot — Question Bank</h1><div class="meta">${getMainMeta()}</div></div>
-  <table><thead><tr><th>#</th><th>Type</th><th>Question</th><th>Level</th><th>Answer</th><th>Marks</th></tr></thead><tbody>`;
-  currentBank.forEach((q,i)=>{
-    html+=`<tr><td>${i+1}</td><td>${q.type||'—'}</td><td>${q.question}</td><td>${q.difficulty||'—'}</td><td>${q.answer||'—'}</td><td>${q.marks||'—'}</td></tr>`;
-  });
-  html+='</tbody></table>';
-  doPrint(html);
+function printQuestions(){doPrint(buildQPrint(currentQuestions,getMainMeta()));}
+function printQOnly(){const meta=`${document.getElementById('qGrade').value} · ${document.getElementById('qSubject').value} · ${document.getElementById('qTopic').value} | ${new Date().toLocaleDateString()}`;doPrint(buildQPrint(qOnlyQuestions,meta));}
+function printBank(){
+  let html=`<div class="print-header"><h1>📚 StudyBot — Question Bank</h1><div class="meta">${getMainMeta()}</div></div><table><thead><tr><th>#</th><th>Type</th><th>Question</th><th>Level</th><th>Answer</th><th>Marks</th></tr></thead><tbody>`;
+  currentBank.forEach((q,i)=>{html+=`<tr><td>${i+1}</td><td>${q.type||'—'}</td><td>${q.question}</td><td>${q.difficulty||'—'}</td><td>${q.answer||'—'}</td><td>${q.marks||'—'}</td></tr>`;});
+  html+='</tbody></table>';doPrint(html);
 }
 </script>
 </body>
