@@ -452,6 +452,58 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
   </div>
 </div>
 
+<!-- ── PAST PAPER ANALYSER ── -->
+<div class="panel" style="border:2px solid #9b59b6">
+  <div class="panel-title">📄 Analyse a Past Question Paper
+    <span style="font-size:12px;font-weight:400;color:var(--text-muted);margin-left:6px">upload any ICSE past paper — get solutions + similar questions</span>
+  </div>
+  <p style="font-size:13px;color:var(--text-muted);margin-bottom:1.25rem">Upload a scanned ICSE past paper image or PDF. AI will extract all questions, provide model answers, and generate new questions modelled on the same style and difficulty.</p>
+
+  <div class="form-grid">
+    <div class="form-group">
+      <label>Grade</label>
+      <select id="ppGrade" onchange="updateSubjects('ppGrade','ppSubject')">
+        <option>Grade 6</option><option>Grade 7</option><option value="Grade 8" selected>Grade 8</option>
+        <option>Grade 9</option><option>Grade 10</option><option>Grade 11 (ISC)</option><option>Grade 12 (ISC)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Subject</label>
+      <select id="ppSubject"></select>
+    </div>
+    <div class="form-group">
+      <label>Year / Label (optional)</label>
+      <input type="text" id="ppLabel" placeholder="e.g. 2023 Board Paper">
+    </div>
+  </div>
+
+  <div class="drop-zone" id="ppDropzone" style="border-color:#9b59b6">
+    <input type="file" id="ppFileInput" accept="image/*,.pdf">
+    <div class="drop-icon">📄</div>
+    <div class="drop-label">Drop past paper image or PDF here</div>
+    <div class="drop-sub">JPG, PNG, WEBP or PDF · single file · up to 20MB</div>
+  </div>
+  <div id="ppFileName" style="font-size:13px;color:var(--mint);margin-top:8px;display:none"></div>
+
+  <button class="btn btn-big" id="ppBtn" onclick="analyzePaper()" style="background:#9b59b6;color:white;margin-top:1.25rem">
+    🔍 Analyse Paper &amp; Generate Similar Questions
+  </button>
+
+  <div id="pp-output" style="display:none;margin-top:1.5rem">
+    <!-- Analysis summary -->
+    <div id="pp-analysis" class="experiment-block" style="border-color:#9b59b6;margin-bottom:1.5rem"></div>
+
+    <!-- Tabs for extracted vs generated -->
+    <div style="display:flex;gap:10px;margin-bottom:1rem;flex-wrap:wrap">
+      <button class="btn btn-outline" id="ppTab1" onclick="showPPTab('extracted')" style="border-color:#9b59b6;color:#9b59b6">📋 Extracted Questions</button>
+      <button class="btn" id="ppTab2" onclick="showPPTab('generated')" style="background:#9b59b6;color:white">✨ Generated Similar Questions</button>
+      <button class="btn btn-pdf" onclick="printPaperAnalysis()">🖨️ Print as PDF</button>
+    </div>
+    <div id="pp-extracted" style="display:none"></div>
+    <div id="pp-generated"></div>
+  </div>
+</div>
+
 </div><!-- /app-body -->
 
 <script>
@@ -653,7 +705,115 @@ function formatAnswer(text) {
   return text.replace(/\n/g,'<br>').replace(/(Given:|Formula:|Working:|Answer:|Aim:|Apparatus:|Procedure:|Observation:|Result:|Precautions?:)/g,'<strong>$1</strong>');
 }
 
-// ── Bank ──────────────────────────────────────────────────────────────────────
+// ── Past paper analyser ───────────────────────────────────────────────────────
+updateSubjects('ppGrade','ppSubject');
+
+let ppData = null;
+
+const ppDz = document.getElementById('ppDropzone');
+const ppFi = document.getElementById('ppFileInput');
+let ppFile = null;
+
+ppDz.addEventListener('dragover', e=>{e.preventDefault();ppDz.classList.add('dragover');});
+ppDz.addEventListener('dragleave', ()=>ppDz.classList.remove('dragover'));
+ppDz.addEventListener('drop', e=>{
+  e.preventDefault(); ppDz.classList.remove('dragover');
+  if (e.dataTransfer.files[0]) setPPFile(e.dataTransfer.files[0]);
+});
+ppFi.addEventListener('change', ()=>{ if(ppFi.files[0]) setPPFile(ppFi.files[0]); ppFi.value=''; });
+
+function setPPFile(f) {
+  ppFile = f;
+  const el = document.getElementById('ppFileName');
+  el.textContent = '📄 ' + f.name + ' (' + (f.size/1024).toFixed(0) + ' KB)';
+  el.style.display = 'block';
+}
+
+async function analyzePaper() {
+  if (!ppFile) { showToast('Please upload a past paper first!', true); return; }
+  const btn = document.getElementById('ppBtn');
+  btn.disabled = true; btn.textContent = '⏳ Analysing paper…';
+  showLoader('🔍 Reading past paper and generating similar questions…');
+
+  const fd = new FormData();
+  fd.append('paper', ppFile);
+  fd.append('grade',   document.getElementById('ppGrade').value);
+  fd.append('subject', document.getElementById('ppSubject').value);
+
+  try {
+    const res  = await fetch('/api/analyze-paper', { method:'POST', body:fd });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    ppData = data;
+
+    // Show analysis
+    const pa = data.paperAnalysis || {};
+    document.getElementById('pp-analysis').innerHTML = `
+      <div class="exp-row"><span class="exp-label" style="color:#6c3483">Paper Summary</span><span class="exp-content">${document.getElementById('ppLabel').value || 'Uploaded Paper'}</span></div>
+      <div class="exp-row"><span class="exp-label" style="color:#6c3483">Total Marks</span><span class="exp-content">${pa.totalMarks || 'N/A'}</span></div>
+      <div class="exp-row"><span class="exp-label" style="color:#6c3483">Sections</span><span class="exp-content">${(pa.sections||[]).join(' · ') || 'N/A'}</span></div>
+      <div class="exp-row"><span class="exp-label" style="color:#6c3483">Topics Covered</span><span class="exp-content">${(pa.topicsCovered||[]).join(', ') || 'N/A'}</span></div>
+      <div class="exp-row"><span class="exp-label" style="color:#6c3483">Question Types</span><span class="exp-content">${(pa.questionTypes||[]).join(', ') || 'N/A'}</span></div>
+      <div class="exp-row"><span class="exp-label" style="color:#6c3483">Difficulty</span><span class="exp-content">${pa.difficultyObservation || 'N/A'}</span></div>`;
+
+    // Extracted questions
+    const eqs = data.extractedQuestions || [];
+    document.getElementById('pp-extracted').innerHTML = eqs.length
+      ? eqs.map((q,i) => `<div class="q-card" onclick="this.classList.toggle('open')">
+          <div class="q-num">Q${i+1} <span class="type-pill">${q.type||'—'}</span> <span class="q-marks">${q.marks||'?'} marks</span></div>
+          <div class="q-text">${q.question}</div>
+          <div class="q-answer">📌 Topic: ${q.topic||'—'}</div>
+        </div>`).join('')
+      : '<p style="color:var(--text-muted);padding:1rem">Could not extract questions from this image. Try a clearer scan.</p>';
+
+    // Generated questions
+    const gqs = data.generatedQuestions || [];
+    document.getElementById('pp-generated').innerHTML = gqs.length
+      ? gqs.map((q,i) => `<div class="q-card" onclick="this.classList.toggle('open')">
+          <div class="q-num">Q${i+1} <span class="type-pill">${q.type||'—'}</span> <span class="q-marks">${q.marks||'?'} marks</span> <span class="diff-pill ${q.difficulty||'medium'}">${q.difficulty||'—'}</span></div>
+          <div class="q-text">${q.question}</div>
+          <div class="q-answer">${formatAnswer(q.answer||'')}</div>
+        </div>`).join('')
+      : '<p style="color:var(--text-muted);padding:1rem">No similar questions generated.</p>';
+
+    document.getElementById('pp-output').style.display = 'block';
+    showPPTab('generated');
+    showToast('✅ Paper analysed! ' + gqs.length + ' similar questions generated.');
+  } catch(e) { showToast(e.message, true); }
+  finally { hideLoader(); btn.disabled=false; btn.textContent='🔍 Analyse Paper & Generate Similar Questions'; }
+}
+
+function showPPTab(tab) {
+  document.getElementById('pp-extracted').style.display = tab==='extracted' ? 'block' : 'none';
+  document.getElementById('pp-generated').style.display = tab==='generated' ? 'block' : 'none';
+  document.getElementById('ppTab1').style.cssText = tab==='extracted' ? 'background:#9b59b6;color:white;border:none' : 'background:transparent;color:#9b59b6;border:1.5px solid #9b59b6';
+  document.getElementById('ppTab2').style.cssText = tab==='generated' ? 'background:#9b59b6;color:white;border:none' : 'background:transparent;color:#9b59b6;border:1.5px solid #9b59b6';
+}
+
+function printPaperAnalysis() {
+  if (!ppData) return;
+  const label = document.getElementById('ppLabel').value || 'Past Paper';
+  const grade = document.getElementById('ppGrade').value;
+  const subj  = document.getElementById('ppSubject').value;
+  let html = `<div class="print-header"><h1>📚 StudyBot — Past Paper Analysis</h1><div class="meta">${grade} · ${subj} · ${label} | ${new Date().toLocaleDateString()}</div></div>`;
+
+  const pa = ppData.paperAnalysis || {};
+  html += `<div class="print-section"><h2>Paper Summary</h2><p>Total Marks: ${pa.totalMarks||'N/A'}</p><p>Topics: ${(pa.topicsCovered||[]).join(', ')}</p><p>Types: ${(pa.questionTypes||[]).join(', ')}</p><p>Difficulty: ${pa.difficultyObservation||'N/A'}</p></div>`;
+
+  const gqs = ppData.generatedQuestions || [];
+  if (gqs.length) {
+    html += `<div class="print-section"><h2>Generated Similar Questions</h2>`;
+    gqs.forEach((q,i) => {
+      html += `<p><strong>Q${i+1}. [${q.type||'Q'}] [${q.marks||'?'} marks]</strong> ${q.question}</p>`;
+      html += `<p style="color:#2e7d32;margin-left:16px;margin-bottom:10px"><em>Answer: ${q.answer||''}</em></p>`;
+    });
+    html += '</div>';
+  }
+  doPrint(html);
+}
+</script>
+</body>
+</html>
 function renderBank(qs){
   document.getElementById('bank-tbody').innerHTML=qs.map((q,i)=>`
     <tr>
