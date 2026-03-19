@@ -22,12 +22,14 @@ const upload = multer({
 
 // ── Subject classification ────────────────────────────────────────────────────
 const SCIENCE  = ['Physics','Chemistry','Biology','Environmental Science'];
+const BIOLOGY  = ['Biology'];
 const MATHS    = ['Mathematics'];
 const HUMANITY = ['History & Civics','History','Geography','Economics','Commercial Studies','Accountancy','Business Studies','Psychology','Sociology','Political Science'];
 const LANGUAGE = ['English Language','English Literature','English','Hindi','French'];
 const COMP     = ['Computer Applications','Computer Science'];
 
 function subjectType(s) {
+  if (BIOLOGY.includes(s))  return 'biology';
   if (SCIENCE.includes(s))  return 'science';
   if (MATHS.includes(s))    return 'maths';
   if (HUMANITY.includes(s)) return 'humanity';
@@ -114,15 +116,27 @@ function safeJSON(raw, fallback = {}) {
 function buildNotesPrompt(grade, subject, topic) {
   const type = subjectType(subject);
 
+  const isBiology = subject === 'Biology';
+
+  const biologyExtra = `
+BIOLOGY — INCLUDE ALL OF THESE (mandatory):
+- DIAGRAMS: Draw at least 2 labelled diagrams relevant to ${topic}. For EACH diagram use the diagram-box format with numbered labels and functions. Biology ALWAYS requires diagrams.
+- Definitions: every ICSE Biology term defined precisely
+- Classification/Types: structured tables showing classification
+- Scientist names: who discovered/described each concept, year
+- ICSE practical: Aim, Materials, Procedure, Observation, Result
+- Comparison tables (e.g. mitosis vs meiosis, aerobic vs anaerobic)
+- Functions of each labelled part must be stated`;
+
   const scienceExtra = `
-SCIENCE — INCLUDE ALL:
+PHYSICS/CHEMISTRY — INCLUDE ALL:
 - Every quantity: symbol, SI unit, unit symbol, formula
 - Scientist name, nationality, year for each law/principle
 - Full step-by-step derivations (show each algebraic step)
 - Minimum 2 solved ICSE-style numericals (Given/Find/Formula/Working/Answer)
 - ICSE practical experiment: Aim, Apparatus, Procedure, Observation, Result, Precautions
-- Comparison table for related concepts (e.g. speed vs velocity, mass vs weight)
-- Labelled diagram description with numbered parts and functions`;
+- Comparison table for related concepts
+- DIAGRAM: at least 1 labelled diagram using the diagram-box format with numbered parts`;
 
   const mathsExtra = `
 MATHEMATICS — INCLUDE ALL:
@@ -141,7 +155,7 @@ HISTORY & CIVICS / GEOGRAPHY / ECONOMICS — INCLUDE ALL:
 - ICSE source-based question format notes (how to analyse a source)
 - Key terms defined exactly as per ICSE textbook`;
 
-  const extras = type==='science' ? scienceExtra : type==='maths' ? mathsExtra : type==='humanity' ? humanityExtra : '';
+  const extras = type==='biology' ? biologyExtra : type==='science' ? scienceExtra : type==='maths' ? mathsExtra : type==='humanity' ? humanityExtra : '';
 
   return `ICSE ${grade} | ${subject} | Topic: ${topic}
 ${extras}
@@ -325,15 +339,28 @@ Write the actual questions now — all about "${topic}" for ICSE ${grade} ${subj
 
 function buildQPromptC(grade, subject, topic) {
   const type = subjectType(subject);
+  const isBiology = subject === 'Biology';
 
-  const scienceShort = `Short answer ICSE Science pattern:
+  const scienceShort = isBiology
+    ? `Short answer ICSE Biology pattern:
+Q1 (2 marks): Define [key ICSE Biology term from ${topic}].
+Q2 (2 marks): State the function of [named part/organ/structure] in ${topic}.
+Q3 (2 marks): State the aim and one precaution of the ICSE Biology experiment on ${topic}.
+Q4 (3 marks): Distinguish between [A] and [B] in ${topic} on three bases (tabular format).
+Q5 (3 marks): Draw and label a neat diagram of [structure/organ relevant to ${topic}]. Answer must describe diagram with: title, at least 4 numbered labels with functions.`
+    : `Short answer ICSE Physics/Chemistry pattern:
 Q1 (2 marks): Define [key term] and state its SI unit.
 Q2 (2 marks): State [law/principle] with its mathematical form.
-Q3 (2 marks): State the aim and one precaution of the ICSE experiment on ${topic}. (SCIENCE ONLY — not for Maths)
+Q3 (2 marks): State the aim and one precaution of the ICSE experiment on ${topic}.
 Q4 (3 marks): Distinguish between [A] and [B] on three bases (tabular: "Basis | A | B --- Def | ... | ... --- Unit | ... | ... --- Example | ... | ...").
 Q5 (3 marks): Numerical — A [object] of [value with unit] has [another value]. Calculate [quantity]. Show full working.`;
 
-  const scienceLong = `Long answer ICSE Science pattern:
+  const scienceLong = isBiology
+    ? `Long answer ICSE Biology pattern:
+Q1 (5 marks): Describe the ICSE Biology experiment to study ${topic}. Include Aim / Materials / Procedure (numbered steps) / Observation / Result / Precautions.
+Q2 (6 marks): With the help of a neat labelled diagram, describe [main biological structure or process in ${topic}]. Include: diagram title, at least 5 numbered labels with functions, description of process.
+Q3 (6 marks): Explain [key biological concept in ${topic}] in detail. Include: definition, types/stages, significance, comparison table, one real-life example.`
+    : `Long answer ICSE Physics/Chemistry pattern:
 Q1 (5 marks): Describe the ICSE experiment to study ${topic}. Include: Aim / Apparatus / Procedure (5 steps) / Observation / Result / Two precautions.
 Q2 (6 marks): With a labelled diagram, explain [concept]. State relevant law. Derive the formula step-by-step. Solve: [numerical with values].
 Q3 (6 marks): A word problem: [real-world scenario involving ${topic}]. Given: [specific values with SI units]. Find [two quantities]. Show complete working for each.`;
