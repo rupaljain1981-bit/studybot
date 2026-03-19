@@ -1145,31 +1145,46 @@ async function analyzePaper() {
           if (el) el.textContent = data.message || '…';
         }
 
-        // Solved questions stream in FIRST — show immediately before generated questions
+        // Solved questions stream incrementally — called after each chunk
         if (event === 'solved') {
           const pa = data.paperAnalysis || {};
+          const sqs = data.solvedQuestions || [];
+
+          // Update analysis panel
           document.getElementById('pp-analysis').innerHTML =
-            '<div class="pp-row"><span class="pp-label">Status</span><span class="pp-val">✅ Paper read — model answers ready</span></div>'
+            '<div class="pp-row"><span class="pp-label">Status</span><span class="pp-val">✅ Solving — ' + sqs.length + ' question' + (sqs.length!==1?'s':'') + ' done so far</span></div>'
             + '<div class="pp-row"><span class="pp-label">Paper</span><span class="pp-val">' + (document.getElementById('ppLabel').value || 'Uploaded') + ' — ' + document.getElementById('ppGrade').value + ' ' + document.getElementById('ppSubject').value + '</span></div>'
             + '<div class="pp-row"><span class="pp-label">Total Marks</span><span class="pp-val">' + (pa.totalMarks||'N/A') + '</span></div>'
             + '<div class="pp-row"><span class="pp-label">Topics</span><span class="pp-val">' + ((pa.topicsCovered||[]).join(', ')||'N/A') + '</span></div>';
-          const sqs = data.solvedQuestions || [];
+
+          // Re-render ALL solved questions so far (accumulates across chunks)
           document.getElementById('pp-solved').innerHTML = sqs.length
             ? sqs.map((q,i) => '<div class="q-card" onclick="this.classList.toggle(&#39;open&#39;)">'
                 + '<div class="q-num">' + (q.qno||('Q'+(i+1))) + ' <span class="type-pill">' + (q.type||'—') + '</span> <span class="q-marks">' + (q.marks||'?') + ' marks</span></div>'
                 + '<div class="q-text">' + q.question + '</div>'
                 + '<div class="q-answer">✅ <strong>Model Answer:</strong><br>' + formatAnswer(q.answer||'') + '</div>'
                 + '</div>').join('')
-            : '<div class="empty-state"><div class="ei">📋</div><h3>No solved questions</h3></div>';
-          document.getElementById('pp-generated').innerHTML =
-            '<div style="text-align:center;padding:1.5rem;color:rgba(255,255,255,.6)">'
-            + '<div class="gen-spinner" style="margin:0 auto .5rem;width:22px;height:22px;border-width:2px"></div>'
-            + '⏳ Generating similar questions…</div>';
+              + '<div id="pp-solving-indicator" style="text-align:center;padding:.75rem;color:rgba(255,255,255,.5);font-size:12px">⏳ Processing remaining questions…</div>'
+            : '<div class="pp-progress" style="text-align:center;padding:1.5rem">'
+              + '<div class="gen-spinner" style="margin:0 auto .5rem;width:24px;height:24px;border-width:2px"></div>'
+              + '<div style="color:rgba(255,255,255,.7);font-size:13px">🧠 Solving questions…</div></div>';
+
+          // Generated tab shows spinner while waiting
+          if (!document.getElementById('pp-generated').querySelector('.q-card')) {
+            document.getElementById('pp-generated').innerHTML =
+              '<div style="text-align:center;padding:1.5rem;color:rgba(255,255,255,.6)">'
+              + '<div class="gen-spinner" style="margin:0 auto .5rem;width:22px;height:22px;border-width:2px"></div>'
+              + '⏳ Generating similar questions…</div>';
+          }
+
+          // Show output and switch to solved tab on first chunk
           document.getElementById('pp-empty').style.display = 'none';
           document.getElementById('pp-output').style.display = 'block';
-          const sb = document.querySelector('#page-paper .sub-tab');
-          showSubTab('pp','solved', sb);
-          showToast('✅ ' + sqs.length + ' questions solved! Generating similar questions…');
+          if (sqs.length <= 8) { // only switch tab on first chunk
+            const sb = document.querySelector('#page-paper .sub-tab');
+            showSubTab('pp','solved', sb);
+          }
+          if (sqs.length > 0) showToast('✅ ' + sqs.length + ' question' + (sqs.length!==1?'s':'') + ' solved so far…');
         }
 
         // Generated questions arrive second — fill in the second tab
@@ -1177,14 +1192,15 @@ async function analyzePaper() {
           ppData = data;
           const pa = data.paperAnalysis || {};
           document.getElementById('pp-analysis').innerHTML =
-            '<div class="pp-row"><span class="pp-label">Status</span><span class="pp-val">' + (data.transcribed ? '✅ Paper read by AI vision' : '⚠️ Vision unavailable') + '</span></div>'
+            '<div class="pp-row"><span class="pp-label">Status</span><span class="pp-val">' + (data.transcribed ? '✅ All ' + (data.solvedQuestions||[]).length + ' questions solved' : '⚠️ Vision unavailable') + '</span></div>'
             + '<div class="pp-row"><span class="pp-label">Paper</span><span class="pp-val">' + (document.getElementById('ppLabel').value || 'Uploaded') + ' — ' + document.getElementById('ppGrade').value + ' ' + document.getElementById('ppSubject').value + '</span></div>'
             + '<div class="pp-row"><span class="pp-label">Total Marks</span><span class="pp-val">' + (pa.totalMarks||'N/A') + '</span></div>'
             + '<div class="pp-row"><span class="pp-label">Topics</span><span class="pp-val">' + ((pa.topicsCovered||[]).join(', ')||'N/A') + '</span></div>'
             + '<div class="pp-row"><span class="pp-label">Difficulty</span><span class="pp-val">' + (pa.difficultyObservation||'N/A') + '</span></div>';
           // Only update solved if not already rendered by 'solved' event
           const sqs = data.solvedQuestions || [];
-          if (!document.getElementById('pp-solved').querySelector('.q-card') && sqs.length) {
+          // Re-render solved with final complete list (removes the "processing" spinner)
+          if (sqs.length) {
             document.getElementById('pp-solved').innerHTML = sqs.map((q,i) =>
               '<div class="q-card" onclick="this.classList.toggle(&#39;open&#39;)">'
               + '<div class="q-num">' + (q.qno||('Q'+(i+1))) + ' <span class="type-pill">' + (q.type||'—') + '</span> <span class="q-marks">' + (q.marks||'?') + ' marks</span></div>'
