@@ -599,70 +599,79 @@ app.post('/api/generate-essay', async (req, res) => {
     const { grade, subject, topic, wordLimit, essayType, language } = req.body;
     if (!topic) return res.status(400).json({ error: 'Topic is required.' });
 
-    const lang = language || 'English';
-    const words = wordLimit || 300;
+    const lang  = language  || 'English';
+    const words = parseInt(wordLimit) || 300;
     const etype = essayType || 'descriptive';
-    const isHindi = lang === 'Hindi';
+    const isHindi  = lang === 'Hindi';
     const isFrench = lang === 'French';
 
+    // Grade-appropriate complexity guidance
+    const gradeNum = parseInt((grade.match(/\d+/) || ['8'])[0]);
+    const complexity = gradeNum <= 7
+      ? 'Use simple, clear sentences appropriate for a young student. Vocabulary should be accessible but rich.'
+      : gradeNum <= 9
+      ? 'Use varied sentence structures and a good range of vocabulary. Show awareness of tone and style.'
+      : 'Use sophisticated vocabulary, complex sentence structures, and literary devices as expected in ICSE/ISC board exams.';
+
+    // Language-specific instruction
     const langInstr = isHindi
-      ? `Write the essay ENTIRELY in Hindi (Devanagari script). Use appropriate Hindi literary language for ${grade} level.`
+      ? `CRITICAL: Write the ENTIRE essay in Hindi using Devanagari script (हिन्दी). Do NOT use any English words except proper nouns. Use ${gradeNum <= 8 ? 'सरल और स्पष्ट हिन्दी' : 'शुद्ध साहित्यिक हिन्दी'} appropriate for ${grade} ICSE level. Vocabulary highlights should also be in Hindi with Hindi meanings.`
       : isFrench
-      ? `Write the essay ENTIRELY in French. Use appropriate French literary language for ${grade} level (ICSE French syllabus).`
-      : `Write the essay in English following ICSE ${grade} language standards.`;
+      ? `CRITICAL: Write the ENTIRE essay in French. Do NOT use any English words except proper nouns. Use ${gradeNum <= 8 ? 'français simple et clair' : 'français littéraire sophistiqué'} appropriate for ${grade} ICSE level. Vocabulary highlights should be French words with English meanings.`
+      : `Write in English. ${complexity}`;
 
+    // Essay type instructions
     const typeInstr = {
-      descriptive: 'Descriptive essay — paint a vivid picture using sensory details, imagery, and expressive language.',
-      narrative:   'Narrative essay — tell a story with a clear beginning, rising action, climax, and conclusion. First or third person.',
-      argumentative: 'Argumentative / Discursive essay — present both sides of the issue, then give a clear personal stand with evidence.',
-      expository:  'Expository essay — explain the topic clearly and factually with examples and evidence. No personal opinion.',
-      letter:      'Formal or informal letter as per ICSE format — include date, address, salutation, body paragraphs, closing.',
-      speech:      'Speech / Address — begin with a greeting to the audience, use rhetorical devices, and end with a strong call to action.',
-    }[etype] || 'Write a well-structured essay appropriate for ICSE exams.';
+      descriptive:   `DESCRIPTIVE ESSAY: Paint a vivid picture of "${topic}" using sensory details (sight, sound, smell, touch, taste), imagery, and expressive language. Do not tell a story — describe.`,
+      narrative:     `NARRATIVE ESSAY: Write a story about "${topic}" with a clear beginning (setting/characters), rising action, climax, and satisfying conclusion. Use first or third person consistently.`,
+      argumentative: `ARGUMENTATIVE / DISCURSIVE ESSAY on "${topic}": Present arguments FOR and AGAINST. Use paragraph 1 for one side, paragraph 2 for the other, then give your clear personal stand with evidence in the conclusion.`,
+      expository:    `EXPOSITORY / FACTUAL ESSAY: Explain "${topic}" clearly and informatively. Include facts, causes, effects, and examples. No personal opinion — only facts and analysis.`,
+      letter:        `LETTER on "${topic}": Use correct ICSE letter format. Include: sender's address (top right), date, recipient's address (left), salutation (Dear Sir/Madam or name), body paragraphs, complimentary close, signature. Tone: ${gradeNum <= 9 ? 'semi-formal or formal' : 'formal'}.`,
+      speech:        `SPEECH on "${topic}": Begin with a greeting (Ladies and gentlemen / Respected Principal / Dear friends). Use rhetorical questions, repetition for emphasis, and inclusive language ("we", "our"). End with a strong call to action or memorable closing line.`,
+    }[etype] || `Write a well-structured essay on "${topic}" appropriate for ICSE ${grade} exams.`;
 
-    const prompt = `You are an expert ICSE ${grade} ${subject || 'English'} teacher and examiner.
+    // Word count guidance
+    const wordGuide = words <= 200
+      ? `Write approximately ${words} words. This is a short composition — be concise but complete.`
+      : words <= 350
+      ? `Write approximately ${words} words. 1 introduction paragraph + 2 body paragraphs + 1 conclusion.`
+      : `Write approximately ${words} words. 1 introduction paragraph + 3 well-developed body paragraphs + 1 conclusion.`;
 
+    const prompt = `You are an expert ICSE/ISC ${grade} ${isHindi ? 'Hindi' : isFrench ? 'French' : 'English Language'} teacher and examiner with 20 years of experience.
+
+TASK: Write a complete ${etype} essay/composition for an ICSE ${grade} student.
 Topic: "${topic}"
-Grade: ${grade}
-Essay type: ${etype}
-Word limit: approximately ${words} words
 Language: ${lang}
+${wordGuide}
 
 ${langInstr}
 
 ${typeInstr}
 
-ICSE essay requirements:
-- Introduction: engaging opening that introduces the topic clearly
-- Body: 2-4 well-developed paragraphs, each with a clear point, explanation, and example
-- Conclusion: satisfying ending that reflects on the topic or gives a final thought
-- Vocabulary: use rich, varied vocabulary appropriate for ${grade}
-- Grammar: correct grammar, punctuation, and sentence variety
-- Format: proper paragraphing with indentation
-${words <= 200 ? '- Keep to approximately '+words+' words (short composition)' : words <= 400 ? '- Aim for approximately '+words+' words' : '- This is a long composition of approximately '+words+' words — develop each paragraph fully'}
+ICSE REQUIREMENTS:
+- Paragraphing: clear paragraph breaks, each with one main idea
+- Vocabulary: varied and appropriate for ${grade} — do not repeat the same words
+- Sentences: mix of simple, compound, and complex sentences
+- Opening: must immediately grab attention — start with a quote, question, or vivid image (NOT "In this essay I will...")
+- Closing: memorable final line that brings the essay full circle
 
-After the essay, provide:
-1. A word count estimate
-2. Three vocabulary highlights — difficult or impressive words used, with meanings
-3. One examiner tip for this essay type
-
-Return your response in this format — no markdown headers, just clear sections:
+After the essay, add these THREE sections using EXACTLY these markers on their own lines:
 
 [ESSAY]
-Write the complete essay here.
+(complete essay here)
 
 [WORD COUNT]
 Approximately X words
 
 [VOCABULARY HIGHLIGHTS]
-1. Word — meaning and why it was used
-2. Word — meaning and why it was used
-3. Word — meaning and why it was used
+1. word — meaning and why this word works well here
+2. word — meaning and why this word works well here  
+3. word — meaning and why this word works well here
 
 [EXAMINER TIP]
-One specific tip for scoring full marks on this type of essay in ICSE exams.`;
+One specific ICSE examiner tip for scoring full marks on a ${etype} essay.`;
 
-    const result = await callGroq(prompt, 2000);
+    const result = await callGroq(prompt, 2500);
     res.json({ success: true, essay: result });
   } catch(err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
