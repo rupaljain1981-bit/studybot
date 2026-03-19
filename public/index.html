@@ -238,6 +238,36 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
 .toast.error{border-left-color:var(--coral)}
 
 /* ── Print ── */
+
+/* ── Essay ── */
+.essay-content{font-size:15px;line-height:1.9;white-space:pre-wrap;background:var(--white);border:1px solid var(--border);border-radius:12px;padding:1.5rem;font-family:'DM Sans',sans-serif}
+.essay-section{margin-bottom:1.5rem}
+.essay-section-title{font-family:'Fraunces',serif;font-size:1rem;font-weight:600;color:#2980b9;margin-bottom:.5rem;padding-bottom:4px;border-bottom:2px solid #d6eaf8}
+.essay-body{font-size:15px;line-height:1.9}
+.essay-meta{background:#eaf4fb;border-radius:10px;padding:1rem;margin-top:1rem;font-size:13px}
+.essay-meta strong{color:#2980b9}
+.vocab-item{display:flex;gap:10px;margin-bottom:6px;font-size:13px;align-items:flex-start}
+.vocab-word{font-weight:600;color:#2980b9;min-width:110px;flex-shrink:0}
+
+/* ── Mnemonics ── */
+.mn-card{background:var(--white);border-radius:14px;padding:1.25rem;margin-bottom:1.25rem;border-left:4px solid #e67e22}
+.mn-card-title{font-family:'Fraunces',serif;font-size:1rem;font-weight:600;color:#e67e22;margin-bottom:.75rem}
+.mn-acronym{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:.5rem}
+.mn-letter-box{background:#fef5e7;border:2px solid #f39c12;border-radius:10px;padding:8px 12px;text-align:center;min-width:70px}
+.mn-letter{font-size:1.4rem;font-weight:700;color:#e67e22;display:block}
+.mn-word{font-size:11px;color:#7d6608;font-weight:500}
+.mn-story{background:#fef9f0;border-radius:10px;padding:1rem;font-size:14px;line-height:1.7;border-left:3px solid #f39c12;margin-top:.5rem}
+.mn-rhyme{background:#fef9f0;border-radius:10px;padding:1rem;font-size:14px;line-height:1.8;font-style:italic;border-left:3px solid #f39c12}
+.visual-item{display:flex;gap:12px;padding:10px;background:var(--off-white);border-radius:8px;margin-bottom:8px;align-items:flex-start}
+.visual-icon{font-size:1.5rem;flex-shrink:0}
+.visual-text .concept{font-weight:600;font-size:13px;color:var(--navy)}
+.visual-text .association{font-size:13px;color:var(--text-muted);margin-top:2px}
+.flashcard{background:var(--white);border:2px solid #f39c12;border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;transition:all .2s}
+.flashcard:hover{background:#fef5e7}
+.flashcard .fc-front{font-weight:600;font-size:14px;color:var(--navy)}
+.flashcard .fc-back{display:none;margin-top:8px;padding-top:8px;border-top:1px dashed #f39c12;font-size:13px;color:#7d6608}
+.flashcard.open .fc-back{display:block}
+
 @media print{
   body *{visibility:hidden}
   #print-area,#print-area *{visibility:visible}
@@ -504,18 +534,124 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
   </div>
 </div>
 
+
+<!-- ── ESSAY WRITER ── -->
+<div class="panel" style="border:2px solid #2980b9">
+  <div class="panel-title">✍️ Essay / Composition Writer
+    <span style="font-size:12px;font-weight:400;color:var(--text-muted);margin-left:6px">ICSE-standard essays in English, Hindi &amp; French</span>
+  </div>
+  <p style="font-size:13px;color:var(--text-muted);margin-bottom:1.25rem">Generate a complete ICSE-standard essay or composition on any topic with vocabulary highlights and examiner tips.</p>
+
+  <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr 1fr">
+    <div class="form-group">
+      <label>Grade</label>
+      <select id="essayGrade">
+        <option>Grade 6</option><option>Grade 7</option><option value="Grade 8" selected>Grade 8</option>
+        <option>Grade 9</option><option>Grade 10</option><option>Grade 11 (ISC)</option><option>Grade 12 (ISC)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Language</label>
+      <select id="essayLang">
+        <option value="English">English</option>
+        <option value="Hindi">Hindi</option>
+        <option value="French">French</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Essay Type</label>
+      <select id="essayType">
+        <option value="descriptive">Descriptive</option>
+        <option value="narrative">Narrative / Story</option>
+        <option value="argumentative">Argumentative / Discursive</option>
+        <option value="expository">Expository / Factual</option>
+        <option value="letter">Letter (Formal/Informal)</option>
+        <option value="speech">Speech / Address</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Word Limit</label>
+      <select id="essayWords">
+        <option value="150">~150 words (short)</option>
+        <option value="250">~250 words</option>
+        <option value="300" selected>~300 words</option>
+        <option value="400">~400 words</option>
+        <option value="500">~500 words</option>
+        <option value="600">~600 words (long)</option>
+      </select>
+    </div>
+  </div>
+  <div class="form-group" style="margin-bottom:1rem">
+    <label>Essay Topic</label>
+    <input type="text" id="essayTopic" placeholder="e.g. The Importance of Trees, My Favourite Season, A Visit to a Museum, Should Social Media be Banned?">
+  </div>
+
+  <button class="btn btn-big" id="essayBtn" onclick="generateEssay()" style="background:#2980b9;color:white">
+    ✍️ Generate Essay
+  </button>
+
+  <div id="essay-output" style="display:none;margin-top:1.5rem">
+    <div class="notes-toolbar">
+      <button class="btn btn-pdf" onclick="printEssay()">🖨️ Print as PDF</button>
+      <button class="btn btn-outline" onclick="copyEssay()">📋 Copy Essay</button>
+    </div>
+    <div id="essay-text" class="essay-content"></div>
+  </div>
+</div>
+
+<!-- ── MNEMONIC GENERATOR ── -->
+<div class="panel" style="border:2px solid #e67e22">
+  <div class="panel-title">🧠 Mnemonic &amp; Memory Aid Generator
+    <span style="font-size:12px;font-weight:400;color:var(--text-muted);margin-left:6px">remember difficult topics easily</span>
+  </div>
+  <p style="font-size:13px;color:var(--text-muted);margin-bottom:1.25rem">Generate acronyms, memory stories, rhymes, visual associations and flash cards for any difficult topic or list of items.</p>
+
+  <div class="form-grid">
+    <div class="form-group">
+      <label>Grade</label>
+      <select id="mnGrade">
+        <option>Grade 6</option><option>Grade 7</option><option value="Grade 8" selected>Grade 8</option>
+        <option>Grade 9</option><option>Grade 10</option><option>Grade 11 (ISC)</option><option>Grade 12 (ISC)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Subject</label>
+      <select id="mnSubject" onchange=""></select>
+    </div>
+    <div class="form-group">
+      <label>Topic to Remember</label>
+      <input type="text" id="mnTopic" placeholder="e.g. Periodic Table Groups, French Revolution Causes, Newton's Laws">
+    </div>
+  </div>
+  <div class="form-group" style="margin-bottom:1rem">
+    <label>Specific Items (optional — list things you want to remember)</label>
+    <input type="text" id="mnItems" placeholder="e.g. Mitosis phases: Prophase, Metaphase, Anaphase, Telophase — OR leave blank for AI to decide">
+  </div>
+
+  <button class="btn btn-big" id="mnBtn" onclick="generateMnemonics()" style="background:#e67e22;color:white">
+    🧠 Generate Memory Aids
+  </button>
+
+  <div id="mn-output" style="display:none;margin-top:1.5rem">
+    <div class="notes-toolbar">
+      <button class="btn btn-pdf" onclick="printMnemonics()">🖨️ Print as PDF</button>
+    </div>
+    <div id="mn-content"></div>
+  </div>
+</div>
+
 </div><!-- /app-body -->
 
 <script>
 // ── ICSE Subject Map ──────────────────────────────────────────────────────────
 const SUBJECTS = {
-  'Grade 6':  ['Mathematics','Physics','Chemistry','Biology','English Language','English Literature','History & Civics','Geography','Hindi','Computer Applications'],
-  'Grade 7':  ['Mathematics','Physics','Chemistry','Biology','English Language','English Literature','History & Civics','Geography','Hindi','Computer Applications'],
-  'Grade 8':  ['Mathematics','Physics','Chemistry','Biology','English Language','English Literature','History & Civics','Geography','Hindi','Computer Applications'],
-  'Grade 9':  ['Mathematics','Physics','Chemistry','Biology','English Language','English Literature','History & Civics','Geography','Hindi','Computer Applications','Economics','Commercial Studies','Environmental Science'],
-  'Grade 10': ['Mathematics','Physics','Chemistry','Biology','English Language','English Literature','History & Civics','Geography','Hindi','Computer Applications','Economics','Commercial Studies','Environmental Science'],
-  'Grade 11 (ISC)': ['Mathematics','Physics','Chemistry','Biology','English','Hindi','Computer Science','Accounts','Business Studies','Economics','Psychology','Sociology','Political Science','Physical Education','Environmental Science'],
-  'Grade 12 (ISC)': ['Mathematics','Physics','Chemistry','Biology','English','Hindi','Computer Science','Accounts','Business Studies','Economics','Psychology','Sociology','Political Science','Physical Education','Environmental Science']
+  'Grade 6':  ['Mathematics','Physics','Chemistry','Biology','English Language','English Literature','History & Civics','Geography','Hindi','French','Computer Applications'],
+  'Grade 7':  ['Mathematics','Physics','Chemistry','Biology','English Language','English Literature','History & Civics','Geography','Hindi','French','Computer Applications'],
+  'Grade 8':  ['Mathematics','Physics','Chemistry','Biology','English Language','English Literature','History & Civics','Geography','Hindi','French','Computer Applications'],
+  'Grade 9':  ['Mathematics','Physics','Chemistry','Biology','English Language','English Literature','History & Civics','Geography','Hindi','French','Computer Applications','Economics','Commercial Studies','Environmental Science'],
+  'Grade 10': ['Mathematics','Physics','Chemistry','Biology','English Language','English Literature','History & Civics','Geography','Hindi','French','Computer Applications','Economics','Commercial Studies','Environmental Science'],
+  'Grade 11 (ISC)': ['Mathematics','Physics','Chemistry','Biology','English','Hindi','French','Computer Science','Accounts','Business Studies','Economics','Psychology','Sociology','Political Science','Physical Education','Environmental Science'],
+  'Grade 12 (ISC)': ['Mathematics','Physics','Chemistry','Biology','English','Hindi','French','Computer Science','Accounts','Business Studies','Economics','Psychology','Sociology','Political Science','Physical Education','Environmental Science']
 };
 
 function updateSubjects(gradeId, subjectId) {
@@ -866,6 +1002,216 @@ function printBank(){
   currentBank.forEach((q,i)=>{html+=`<tr><td>${i+1}</td><td>${q.type||'—'}</td><td>${q.question}</td><td>${q.difficulty||'—'}</td><td>${q.answer||'—'}</td><td>${q.marks||'—'}</td></tr>`;});
   html+='</tbody></table>';doPrint(html);
 }
+
+// ── Mnemonic subject dropdown init ───────────────────────────────────────────
+(function() {
+  const g = document.getElementById('mnGrade');
+  const s = document.getElementById('mnSubject');
+  function syncMn() { s.innerHTML = (SUBJECTS[g.value]||[]).map(x=>`<option value="${x}">${x}</option>`).join(''); }
+  g.addEventListener('change', syncMn);
+  syncMn();
+})();
+
+// ── Essay Generator ───────────────────────────────────────────────────────────
+async function generateEssay() {
+  const topic = document.getElementById('essayTopic').value.trim();
+  if (!topic) { showToast('Please enter an essay topic!', true); return; }
+  const btn = document.getElementById('essayBtn');
+  btn.disabled = true; btn.textContent = '⏳ Writing essay…';
+  showLoader('✍️ Writing your ICSE essay…');
+  try {
+    const res = await fetch('/api/generate-essay', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        grade:     document.getElementById('essayGrade').value,
+        language:  document.getElementById('essayLang').value,
+        essayType: document.getElementById('essayType').value,
+        wordLimit: document.getElementById('essayWords').value,
+        topic
+      })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    // Parse and display the essay sections
+    const raw = data.essay;
+    const essayMatch  = raw.match(/\[ESSAY\]([\s\S]*?)(?=\[WORD COUNT\]|\[VOCABULARY|\[EXAMINER|$)/i);
+    const wcMatch     = raw.match(/\[WORD COUNT\]([\s\S]*?)(?=\[VOCABULARY|\[EXAMINER|$)/i);
+    const vocabMatch  = raw.match(/\[VOCABULARY HIGHLIGHTS\]([\s\S]*?)(?=\[EXAMINER|$)/i);
+    const tipMatch    = raw.match(/\[EXAMINER TIP\]([\s\S]*?)$/i);
+
+    const essayText = essayMatch  ? essayMatch[1].trim()  : raw;
+    const wcText    = wcMatch     ? wcMatch[1].trim()     : '';
+    const vocabText = vocabMatch  ? vocabMatch[1].trim()  : '';
+    const tipText   = tipMatch    ? tipMatch[1].trim()    : '';
+
+    const langName = document.getElementById('essayLang').value;
+    const typeName = document.getElementById('essayType').options[document.getElementById('essayType').selectedIndex].text;
+    const grade    = document.getElementById('essayGrade').value;
+
+    document.getElementById('essay-text').innerHTML = `
+      <div class="essay-section">
+        <div class="essay-section-title">✍️ ${typeName} — ${topic}</div>
+        <div class="essay-body">${essayText.replace(/
+/g,'<br>')}</div>
+      </div>
+      ${wcText || vocabText || tipText ? `<div class="essay-meta">
+        ${wcText ? `<p><strong>📊 ${wcText}</strong></p>` : ''}
+        ${vocabText ? `<p style="margin-top:.75rem"><strong>📚 Vocabulary Highlights:</strong></p><div style="margin-top:.5rem">${
+          vocabText.split(/
+/).filter(l=>l.trim()).map(l=>{
+            const m = l.match(/^[\d.]+\s+(.+?)\s*[—-]+\s*(.+)$/);
+            return m ? `<div class="vocab-item"><span class="vocab-word">${m[1]}</span><span>${m[2]}</span></div>`
+                     : `<div style="font-size:13px;margin-bottom:4px">${l}</div>`;
+          }).join('')
+        }</div>` : ''}
+        ${tipText ? `<p style="margin-top:.75rem"><strong>💡 Examiner Tip:</strong> ${tipText}</p>` : ''}
+      </div>` : ''}`;
+
+    document.getElementById('essay-output').style.display = 'block';
+    document.getElementById('essay-output').scrollIntoView({behavior:'smooth'});
+    showToast('✅ Essay ready!');
+  } catch(e) { showToast(e.message, true); }
+  finally { hideLoader(); btn.disabled=false; btn.textContent='✍️ Generate Essay'; }
+}
+
+function copyEssay() {
+  const el = document.getElementById('essay-text');
+  navigator.clipboard.writeText(el.innerText);
+  showToast('📋 Essay copied!');
+}
+
+function printEssay() {
+  const topic = document.getElementById('essayTopic').value;
+  const grade = document.getElementById('essayGrade').value;
+  const lang  = document.getElementById('essayLang').value;
+  const type  = document.getElementById('essayType').options[document.getElementById('essayType').selectedIndex].text;
+  const html  = `<div class="print-header"><h1>📚 StudyBot — Essay</h1>
+    <div class="meta">${grade} · ${lang} · ${type} · "${topic}" | ${new Date().toLocaleDateString()}</div></div>`
+    + document.getElementById('essay-text').innerHTML;
+  doPrint(html);
+}
+
+// ── Mnemonic Generator ────────────────────────────────────────────────────────
+async function generateMnemonics() {
+  const topic = document.getElementById('mnTopic').value.trim();
+  if (!topic) { showToast('Please enter a topic!', true); return; }
+  const btn = document.getElementById('mnBtn');
+  btn.disabled = true; btn.textContent = '⏳ Creating memory aids…';
+  showLoader('🧠 Building memory aids and mnemonics…');
+  try {
+    const res = await fetch('/api/generate-mnemonics', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        grade:   document.getElementById('mnGrade').value,
+        subject: document.getElementById('mnSubject').value,
+        topic,
+        items: document.getElementById('mnItems').value.trim()
+      })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    renderMnemonics(data.mnemonics);
+    document.getElementById('mn-output').style.display = 'block';
+    document.getElementById('mn-output').scrollIntoView({behavior:'smooth'});
+    showToast('🧠 Memory aids ready!');
+  } catch(e) { showToast(e.message, true); }
+  finally { hideLoader(); btn.disabled=false; btn.textContent='🧠 Generate Memory Aids'; }
+}
+
+function renderMnemonics(data) {
+  let html = '';
+
+  // Acronyms / mnemonics
+  const mnems = data.mnemonics || [];
+  if (mnems.length) {
+    html += '<h3 style="font-family:Fraunces,serif;margin-bottom:1rem;color:var(--navy)">🔤 Acronyms &amp; Mnemonics</h3>';
+    mnems.forEach(m => {
+      html += `<div class="mn-card">
+        <div class="mn-card-title">${m.title || m.type}</div>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:.75rem">${m.example || ''}</p>`;
+      if (m.content && m.expansion) {
+        const letters = m.content.split('');
+        const words   = m.expansion.split(/[,
+—–-]/).map(w => w.trim()).filter(Boolean);
+        html += '<div class="mn-acronym">';
+        letters.forEach((l, i) => {
+          html += `<div class="mn-letter-box"><span class="mn-letter">${l.toUpperCase()}</span><span class="mn-word">${words[i] || ''}</span></div>`;
+        });
+        html += '</div>';
+      }
+      if (m.items && m.items.length) {
+        html += `<div style="font-size:13px;color:var(--text-muted);margin-top:.5rem">Items: ${m.items.join(' · ')}</div>`;
+      }
+      html += '</div>';
+    });
+  }
+
+  // Memory palace / story
+  if (data.memoryPalace) {
+    html += `<div class="mn-card" style="border-left-color:var(--mint)">
+      <div class="mn-card-title" style="color:var(--mint)">🏰 Memory Story</div>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:.75rem">${data.memoryPalace.description || ''}</p>
+      <div class="mn-story">${(data.memoryPalace.story || '').replace(/
+/g,'<br>')}</div>
+    </div>`;
+  }
+
+  // Rhyme / jingle
+  if (data.rhymeOrSong) {
+    html += `<div class="mn-card" style="border-left-color:var(--coral)">
+      <div class="mn-card-title" style="color:var(--coral)">🎵 Rhyme / Jingle</div>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:.75rem">${data.rhymeOrSong.description || ''}</p>
+      <div class="mn-rhyme">${(data.rhymeOrSong.content || '').replace(/
+/g,'<br>')}</div>
+    </div>`;
+  }
+
+  // Visual associations
+  const visuals = data.visualAssociations || [];
+  if (visuals.length) {
+    html += `<div class="mn-card" style="border-left-color:var(--sky)">
+      <div class="mn-card-title" style="color:var(--sky)">👁️ Visual Associations</div>`;
+    visuals.forEach(v => {
+      html += `<div class="visual-item">
+        <span class="visual-icon">🖼️</span>
+        <div class="visual-text">
+          <div class="concept">${v.concept}</div>
+          <div class="association">${v.visual}</div>
+          <div class="association" style="color:var(--mint)">💡 ${v.tip || ''}</div>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  // Flash cards
+  const cards = data.quickRecallCards || [];
+  if (cards.length) {
+    html += `<div class="mn-card" style="border-left-color:var(--amber)">
+      <div class="mn-card-title" style="color:var(--amber)">🃏 Quick Recall Flash Cards <span style="font-size:12px;font-weight:400;color:var(--text-muted)">(click to flip)</span></div>`;
+    cards.forEach((c, i) => {
+      html += `<div class="flashcard" onclick="this.classList.toggle('open')">
+        <div class="fc-front">Q${i+1}: ${c.front}</div>
+        <div class="fc-back">✅ ${c.back}</div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  document.getElementById('mn-content').innerHTML = html || '<p style="color:var(--text-muted)">Could not generate mnemonics. Please try again.</p>';
+}
+
+function printMnemonics() {
+  const topic = document.getElementById('mnTopic').value;
+  const grade = document.getElementById('mnGrade').value;
+  const subj  = document.getElementById('mnSubject').value;
+  const html  = `<div class="print-header"><h1>📚 StudyBot — Memory Aids</h1>
+    <div class="meta">${grade} · ${subj} · ${topic} | ${new Date().toLocaleDateString()}</div></div>`
+    + document.getElementById('mn-content').innerHTML;
+  doPrint(html);
+}
+
 </script>
 </body>
 </html>
