@@ -205,26 +205,45 @@ async function callGroq(prompt, maxTokens = 2048) {
   }
 }
 function safeJSON(raw, fallback = {}) {
+  if (!raw) return fallback;
   try {
-    const cleaned = raw.replace(/```json|```/g,'').trim();
-    const s = cleaned.indexOf('{');
+    // Strip markdown fences including ```json, ```JSON, ``` etc
+    let cleaned = raw.replace(/^```[a-zA-Z]*\s*/,'').replace(/\s*```\s*$/,'').trim();
+    // Also strip any remaining backtick blocks mid-string
+    cleaned = cleaned.replace(/```[a-zA-Z]*\s*|\s*```/g, '').trim();
+
+    // Find the outermost JSON object or array
+    const s = cleaned.search(/[{[]/);
     if (s === -1) throw new Error('No JSON found');
-    // Find last valid } — handle truncated JSON by trying progressively shorter slices
     let text = cleaned.slice(s);
-    // Try full parse first
+
+    // Attempt 1: direct parse
     try { return JSON.parse(text); } catch(_) {}
-    // If truncated, try finding the last complete top-level object
-    const e = text.lastIndexOf('}');
-    if (e > 0) {
-      try { return JSON.parse(text.slice(0, e+1)); } catch(_) {}
+
+    // Attempt 2: find the last closing brace/bracket that balances
+    let depth = 0, lastClose = -1;
+    const opener = text[0];
+    const closer = opener === '{' ? '}' : ']';
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === opener) depth++;
+      else if (text[i] === closer) { depth--; if (depth === 0) { lastClose = i; break; } }
     }
-    // Last resort: try to close truncated arrays/objects
-    const openBrackets = (text.match(/\[/g)||[]).length - (text.match(/\]/g)||[]).length;
-    const openBraces   = (text.match(/\{/g)||[]).length - (text.match(/\}/g)||[]).length;
-    let fixed = text.replace(/,\s*$/, ''); // remove trailing comma
-    for (let i = 0; i < openBrackets; i++) fixed += ']';
-    for (let i = 0; i < openBraces; i++) fixed += '}';
+    if (lastClose > 0) {
+      try { return JSON.parse(text.slice(0, lastClose + 1)); } catch(_) {}
+    }
+
+    // Attempt 3: close unclosed brackets/braces
+    let opens = 0, arr = 0;
+    for (const c of text) {
+      if (c === '{') opens++; else if (c === '}') opens--;
+      if (c === '[') arr++;   else if (c === ']') arr--;
+    }
+    let fixed = text.replace(/,\s*([}\]])/, '$1');  // remove trailing commas
+    fixed = fixed.replace(/,\s*$/, '');
+    for (let i = 0; i < Math.max(0,arr);  i++) fixed += ']';
+    for (let i = 0; i < Math.max(0,opens); i++) fixed += '}';
     try { return JSON.parse(fixed); } catch(_) {}
+
     throw new Error('Could not parse JSON even after repair');
   } catch(e) {
     console.error('JSON parse failed:', e.message, '\nRaw preview:', raw.slice(0,200));
@@ -634,22 +653,21 @@ async function analyzePastPaper(fileBuffer, mimeType, grade, subject) {
           }
         },
         {
-          text: `You are an expert ICSE ${grade} ${subject} teacher reading a past question paper image.
-
-Do TWO things:
-
-1. ANALYSE the paper: note total marks, section names, topics covered, question types.
-
-2. SOLVE every question with complete model answers:
-   - MCQ: state correct option + one-line reason why
-   - Fill in blank: the exact answer word(s)
-   - Short answer: complete 2-3 sentence ICSE model answer
-   - Numerical: Given: values / Formula: formula / Working: each step / Answer: value + SI unit
-   - Long answer: full structured answer with all key points, definitions, examples
-
-Output ONLY valid JSON — no markdown, no extra text:
-{"paperAnalysis":{"totalMarks":80,"sections":["Section A — 40 marks","Section B — 40 marks"],"topicsCovered":["topic1","topic2","topic3"],"questionTypes":["MCQ","Short Answer","Long Answer"],"difficultyObservation":"describe difficulty pattern"},"solvedQuestions":[{"qno":"Q1(a)","type":"MCQ","question":"exact question text from paper","answer":"B) correct option — reason why","marks":1,"topic":"topic name"},{"qno":"Q1(b)","type":"Short Answer","question":"exact question text","answer":"complete model answer","marks":2,"topic":"topic"}]}
-Solve ALL questions from the paper. Output JSON only.`
+          text: 'You are an expert ICSE ' + grade + ' ' + subject + ' teacher reading a past question paper image.\n\n'
+            + 'Do TWO things:\n'
+            + '1. ANALYSE the paper: note total marks, sections, topics, question types.\n'
+            + '2. SOLVE every single question with complete model answers:\n'
+            + '   MCQ: correct letter + one-line reason\n'
+            + '   Fill blank: exact answer word(s)\n'
+            + '   Short answer: 2-3 sentence model answer\n'
+            + '   Numerical: Given / Formula / Working / Answer with SI unit\n'
+            + '   Long answer: full structured answer\n\n'
+            + 'CRITICAL OUTPUT RULES:\n'
+            + '- Output ONLY raw JSON — absolutely no markdown, no ```json, no ``` fences\n'
+            + '- No newlines or spaces in the JSON — output as a single compact line\n'
+            + '- Start your response with { and end with }\n\n'
+            + 'Format: {"paperAnalysis":{"totalMarks":80,"sections":["Section A","Section B"],"topicsCovered":["topic1","topic2"],"questionTypes":["MCQ","Short Answer"],"difficultyObservation":"mixed"},"solvedQuestions":[{"qno":"Q1(a)","type":"MCQ","question":"exact text","answer":"B) answer — reason","marks":1,"topic":"topic"},{"qno":"Q1(b)","type":"Short Answer","question":"exact text","answer":"model answer","marks":2,"topic":"topic"}]}\n'
+            + 'Solve ALL questions from the paper. Begin your response with { now.'
         }
       ];
 
@@ -657,7 +675,16 @@ Solve ALL questions from the paper. Output JSON only.`
       console.log('Gemini solve result:', geminiResult ? geminiResult.length : 0, 'chars');
 
       if (geminiResult) {
-        const parsed = safeJSON(geminiResult, null);
+        // Gemini sometimes adds markdown fences or pretty-prints — strip aggressively
+        let cleanResult = geminiResult
+          .replace(/^```[a-zA-Z]*\s*/m, '')
+          .replace(/\s*```\s*$/m, '')
+          .trim();
+        // If still not starting with {, find first {
+        const brace = cleanResult.indexOf('{');
+        if (brace > 0) cleanResult = cleanResult.slice(brace);
+
+        const parsed = safeJSON(cleanResult, null);
         if (parsed && parsed.solvedQuestions?.length) {
           solvedQuestions = parsed.solvedQuestions;
           paperAnalysis   = parsed.paperAnalysis || {};
@@ -665,6 +692,7 @@ Solve ALL questions from the paper. Output JSON only.`
           console.log('Gemini solved', solvedQuestions.length, 'questions');
         } else {
           console.log('Gemini JSON parse failed — falling back to Groq curriculum generation');
+          console.log('Gemini raw first 300 chars:', geminiResult.slice(0,300));
         }
       }
     } catch(err) {
@@ -675,20 +703,16 @@ Solve ALL questions from the paper. Output JSON only.`
   // If Gemini failed or key not set — use Groq to generate curriculum-based questions
   if (!transcribed) {
     console.log('Generating curriculum-based paper for', grade, subject);
-    const fallbackPrompt = 'You are an ICSE ' + grade + ' ' + subject + ' examiner.\n'
-      + 'Generate a realistic set of ICSE ' + grade + ' ' + subject + ' exam questions with model answers.\n'
-      + 'Include MCQ, Short Answer, and Long Answer questions.\n\n'
-      + 'Output ONLY valid JSON:\n'
-      + '{"paperAnalysis":{"totalMarks":80,"sections":["Section A","Section B"],'
-      + '"topicsCovered":["' + subject + ' key topics"],"questionTypes":["MCQ","Short Answer","Long Answer"],'
-      + '"difficultyObservation":"Typical ICSE board paper"},'
+    const fallbackPrompt = 'Generate 5 ICSE ' + grade + ' ' + subject + ' exam questions with model answers. '
+      + 'Mix MCQ, Short Answer, Long Answer. Output ONLY compact JSON on one line: '
+      + '{"paperAnalysis":{"totalMarks":80,"sections":["Section A","Section B"],"topicsCovered":["' + subject + '"],"questionTypes":["MCQ","Short Answer","Long Answer"],"difficultyObservation":"mixed"},'
       + '"solvedQuestions":['
-      + '{"qno":"Q1(a)","type":"MCQ","question":"specific MCQ with A) B) C) D)","answer":"B) answer — reason","marks":1,"topic":"topic"},'
-      + '{"qno":"Q1(b)","type":"Short Answer","question":"specific question","answer":"model answer","marks":2,"topic":"topic"},'
-      + '{"qno":"Q2","type":"Long Answer","question":"specific long answer question","answer":"structured model answer","marks":5,"topic":"topic"}'
-      + ']}\nOutput JSON only.';
+      + '{"qno":"Q1","type":"MCQ","question":"write specific question A) B) C) D)","answer":"B) correct — reason","marks":1,"topic":"' + subject + '"},'
+      + '{"qno":"Q2","type":"Short Answer","question":"write specific question","answer":"write model answer","marks":2,"topic":"' + subject + '"},'
+      + '{"qno":"Q3","type":"Long Answer","question":"write specific question","answer":"write structured answer","marks":5,"topic":"' + subject + '"}'
+      + ']} Output JSON only.';
 
-    const fallbackRaw = await callGroq(fallbackPrompt, 1800);
+    const fallbackRaw = await callGroq(fallbackPrompt, 1200);
     const fb = safeJSON(fallbackRaw, { paperAnalysis:{}, solvedQuestions:[] });
     solvedQuestions = fb.solvedQuestions || [];
     paperAnalysis   = fb.paperAnalysis  || {};
