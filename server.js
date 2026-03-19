@@ -676,28 +676,35 @@ function buildBankPrompt(grade, subject, topic) {
 // ── PAST PAPER ANALYSIS ───────────────────────────────────────────────────────
 // Architecture: Gemini = OCR only (plain text, never fails)
 //               Groq   = solve from text + generate new questions
-async function analyzePastPaper(fileBuffer, mimeType, grade, subject, onProgress = () => {}) {
+async function analyzePastPaper(files, grade, subject, onProgress = () => {}) {
+  // files = array of multer file objects (supports multiple pages photographed separately)
 
-  // ── Step 1: Gemini reads the paper as PLAIN TEXT (no JSON, never fails) ──────
+  // ── Step 1: Gemini reads ALL pages as PLAIN TEXT ──────────────────────────────
   let transcription = null;
 
   if (process.env.GEMINI_API_KEY) {
     try {
+      const pageCount = files.length;
+      onProgress('📖 Reading ' + pageCount + ' page' + (pageCount > 1 ? 's' : '') + ' with AI vision…');
+
+      // Build image parts for ALL pages — Gemini handles them in one call
+      const imageParts = files.map(f => ({
+        inline_data: {
+          mime_type: f.mimetype === 'application/pdf' ? 'application/pdf' : f.mimetype,
+          data: f.buffer.toString('base64')
+        }
+      }));
+
       const ocrParts = [
+        ...imageParts,
         {
-          inline_data: {
-            mime_type: mimeType === 'application/pdf' ? 'application/pdf' : mimeType,
-            data: fileBuffer.toString('base64')
-          }
-        },
-        {
-          text: 'You are reading an ICSE ' + grade + ' ' + subject + ' past question paper.\n'
-            + 'Transcribe EVERY question EXACTLY as printed. Include question numbers, marks, all text, all MCQ options.\n'
-            + 'Output plain text only — no JSON, no markdown, no formatting.\n'
-            + 'Just copy the paper exactly as you see it.'
+          text: 'You are reading ' + pageCount + ' page' + (pageCount > 1 ? 's' : '') + ' of an ICSE ' + grade + ' ' + subject + ' past question paper. '
+            + 'Transcribe EVERY question from ALL pages EXACTLY as printed. '
+            + 'Include: question numbers and sub-parts, marks allocations, full question text, all MCQ options A B C D, any given data or values. '
+            + 'If the paper spans multiple pages, combine them in order. '
+            + 'Output plain text only — no JSON, no markdown. Just the paper content.'
         }
       ];
-      onProgress('📖 AI is reading the paper…');
       transcription = await callGeminiVision(ocrParts, 3);
       console.log('Gemini OCR result:', transcription ? transcription.length + ' chars' : 'failed');
     } catch(err) {
@@ -959,19 +966,25 @@ app.post('/api/questions-only', async (req, res) => {
   } catch(err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
-// ── /api/analyze-paper (SSE streaming) ───────────────────────────────────────
-app.post('/api/analyze-paper', upload.single('paper'), async (req, res) => {
+// ── /api/analyze-paper (SSE streaming, multiple pages supported) ─────────────
+app.post('/api/analyze-paper', upload.array('paper', 20), async (req, res) => {
   const { grade, subject } = req.body;
-  const file = req.file;
-  if (!file) return res.status(400).json({ error: 'Please upload a past paper.' });
+  const files = req.files || [];
+  if (!files.length) return res.status(400).json({ error: 'Please upload at least one page.' });
 
   sseSetup(res);
   const g = grade || 'Grade 8', s = subject || '';
+  console.log('analyze-paper received', files.length, 'file(s):', files.map(f => f.originalname + ' (' + Math.round(f.size/1024) + 'KB)').join(', '));
 
   try {
-    sseSend(res, 'progress', { stage: 'reading', message: '📄 Reading your paper with AI vision…' });
+    const pageCount = files.length;
+    sseSend(res, 'progress', {
+      stage: 'reading',
+      message: '📄 Reading ' + pageCount + ' page' + (pageCount > 1 ? 's' : '') + ' with AI vision…',
+      total: pageCount
+    });
 
-    const result = await analyzePastPaper(file.buffer, file.mimetype, g, s, (msg) => {
+    const result = await analyzePastPaper(files, g, s, (msg) => {
       sseSend(res, 'progress', { stage: 'solving', message: msg });
     });
 
