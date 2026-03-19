@@ -821,28 +821,43 @@ async function analyzePastPaper(files, grade, subject, onProgress = () => {}, on
 
     await sleep(600);
 
-    // Second call: solve the questions — pass the transcription as context
-    // Keep it tight: 1200 chars of transcription max to fit in 8b tokens
-    const transcSnippet = transcription.slice(0, 1200);
-    onProgress('🧠 Solving questions with model answers…');
-    const solvePrompt = 'You are an ICSE ' + grade + ' ' + subject + ' teacher.\n'
-      + 'Here are questions from an uploaded exam paper:\n\n'
-      + transcSnippet + '\n\n'
-      + 'Solve each question with a complete model answer.\n'
-      + 'Output ONLY JSON array (no object wrapper):\n'
-      + '[{"qno":"Q1","type":"MCQ","question":"question text","answer":"B) answer — reason","marks":1,"topic":"topic"},'
-      + '{"qno":"Q2","type":"Short Answer","question":"question text","answer":"model answer","marks":2,"topic":"topic"}]\n'
-      + 'Solve every question visible above. Output JSON array only.';
+    // Split transcription into 1200-char chunks so EVERY question gets solved
+    // regardless of how many pages — each chunk fits within 8b token budget
+    const CHUNK_SIZE = 1200;
+    const chunks = [];
+    for (let pos = 0; pos < transcription.length; pos += CHUNK_SIZE) {
+      chunks.push(transcription.slice(pos, pos + CHUNK_SIZE));
+    }
+    console.log('Transcription', transcription.length, 'chars split into', chunks.length, 'chunk(s) for solving');
 
-    const solveRaw = await callGroq(solvePrompt, 1800);
-    // Wrap in object if it returned a bare array
-    let solveText = solveRaw.trim();
-    if (solveText.startsWith('[')) solveText = '{"solvedQuestions":' + solveText + '}';
-    const solveData = safeJSON(solveText, { solvedQuestions: [] });
-    solvedQuestions = solveData.solvedQuestions || solveData || [];
-    if (Array.isArray(solveData)) solvedQuestions = solveData;
-    console.log('Groq solved', solvedQuestions.length, 'questions from transcription');
-    onSolved(solvedQuestions, paperAnalysis); // stream solved questions immediately
+    for (let ci = 0; ci < chunks.length; ci++) {
+      const chunkLabel = chunks.length > 1 ? ' (part ' + (ci+1) + ' of ' + chunks.length + ')' : '';
+      onProgress('🧠 Solving questions' + chunkLabel + '…');
+
+      const solvePrompt = 'You are an ICSE ' + grade + ' ' + subject + ' teacher.\n'
+        + 'Solve the questions below from an uploaded exam paper' + chunkLabel + ':\n\n'
+        + chunks[ci] + '\n\n'
+        + 'For each question give a complete model answer.\n'
+        + 'Output ONLY a JSON array — no wrapper object, no markdown:\n'
+        + '[{"qno":"Q1","type":"MCQ","question":"exact question","answer":"B) correct — reason","marks":1,"topic":"topic"},'
+        + '{"qno":"Q2","type":"Short Answer","question":"exact question","answer":"model answer","marks":2,"topic":"topic"}]\n'
+        + 'Solve every question visible. Output JSON array only.';
+
+      const solveRaw = await callGroq(solvePrompt, 1800);
+      let solveText = solveRaw.trim();
+      if (solveText.startsWith('[')) solveText = '{"solvedQuestions":' + solveText + '}';
+      const solveData = safeJSON(solveText, { solvedQuestions: [] });
+      const chunkSolved = Array.isArray(solveData) ? solveData : (solveData.solvedQuestions || []);
+      solvedQuestions = solvedQuestions.concat(chunkSolved);
+      console.log('Chunk', ci+1, 'solved:', chunkSolved.length, 'questions (total so far:', solvedQuestions.length + ')');
+
+      // Stream partial results after each chunk — user sees answers incrementally
+      onSolved(solvedQuestions, paperAnalysis);
+
+      // Gap before next chunk — respects 8b TPM limit
+      if (ci < chunks.length - 1) await sleep(600);
+    }
+    console.log('Total solved:', solvedQuestions.length, 'questions from', chunks.length, 'chunk(s)');
 
   } else {
     // No vision — generate curriculum questions
