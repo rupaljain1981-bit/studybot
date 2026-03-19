@@ -62,15 +62,39 @@ async function groqCall(model, prompt, maxTokens) {
   return data.choices[0].message.content;
 }
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function retryAfterMs(msg) {
+  const m = msg.match(/try again in ([\d.]+)s/i);
+  return m ? Math.ceil(parseFloat(m[1]) * 1000) + 300 : 2500;
+}
+
+function isRateLimit(msg) {
+  return msg.includes('rate_limit') || msg.includes('quota') ||
+         msg.includes('Limit') || msg.includes('429') ||
+         msg.includes('exceeded') || msg.includes('try again in');
+}
+
 async function callGroq(prompt, maxTokens = 2048) {
   try {
     return await groqCall('llama-3.3-70b-versatile', prompt, maxTokens);
   } catch(e) {
-    if (e.message.includes('rate_limit') || e.message.includes('quota') || e.message.includes('Limit') || e.message.includes('429') || e.message.includes('exceeded')) {
-      console.log('70b rate limited — falling back to llama-3.1-8b-instant');
+    if (!isRateLimit(e.message)) throw e;
+    console.log('70b rate limited -- switching to llama-3.1-8b-instant');
+  }
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
       return await groqCall('llama-3.1-8b-instant', prompt, maxTokens);
+    } catch(e) {
+      if (isRateLimit(e.message) && attempt < 3) {
+        const wait = retryAfterMs(e.message);
+        console.log('Fallback TPM limit -- retrying in ' + wait + 'ms (attempt ' + (attempt+1) + '/3)');
+        await sleep(wait);
+      } else {
+        throw new Error('Service is busy. Please wait 10 seconds and try again.');
+      }
     }
-    throw e;
   }
 }
 
