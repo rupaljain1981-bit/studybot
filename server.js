@@ -821,40 +821,62 @@ async function analyzePastPaper(files, grade, subject, onProgress = () => {}, on
 
     await sleep(600);
 
-    // Split transcription into 1200-char chunks so EVERY question gets solved
-    // regardless of how many pages — each chunk fits within 8b token budget
-    const CHUNK_SIZE = 1200;
-    const chunks = [];
-    for (let pos = 0; pos < transcription.length; pos += CHUNK_SIZE) {
-      chunks.push(transcription.slice(pos, pos + CHUNK_SIZE));
+    // Split transcription on question boundaries — never split mid-question
+    function splitByQuestions(text, maxPerChunk) {
+      // Match question starters: Q1, Q1(a), 1., 1) etc at start of line
+      const qPattern = /(?:^|\n)\s*(?:Q\d+[.(]?|\d+[.)]\s)/gm;
+      const matches = [...text.matchAll(qPattern)];
+      if (matches.length === 0) {
+        // No question markers — split by section headers or just use chunks
+        const sections = text.split(/\n(?=Section|SECTION)/);
+        return sections.filter(s => s.trim()).length > 1
+          ? sections.filter(s => s.trim())
+          : [text];
+      }
+      // Extract each question as its own string
+      const questions = matches.map((m, i) => {
+        const start = m.index;
+        const end   = matches[i+1] ? matches[i+1].index : text.length;
+        return text.slice(start, end).trim();
+      });
+      // Group into chunks of maxPerChunk questions
+      const chunks = [];
+      for (let i = 0; i < questions.length; i += maxPerChunk) {
+        chunks.push(questions.slice(i, i + maxPerChunk).join('\n\n'));
+      }
+      return chunks;
     }
-    console.log('Transcription', transcription.length, 'chars split into', chunks.length, 'chunk(s) for solving');
+
+    // 3 questions per chunk — each gets a proper answer without token overflow
+    const chunks = splitByQuestions(transcription, 3);
+    console.log('Transcription', transcription.length, 'chars →', chunks.length, 'chunk(s) by question boundary');
 
     for (let ci = 0; ci < chunks.length; ci++) {
       const chunkLabel = chunks.length > 1 ? ' (part ' + (ci+1) + ' of ' + chunks.length + ')' : '';
       onProgress('🧠 Solving questions' + chunkLabel + '…');
 
       const solvePrompt = 'You are an ICSE ' + grade + ' ' + subject + ' teacher.\n'
-        + 'Solve the questions below from an uploaded exam paper' + chunkLabel + ':\n\n'
+        + 'Solve these questions from an uploaded exam paper' + chunkLabel + ':\n\n'
         + chunks[ci] + '\n\n'
-        + 'For each question give a complete model answer.\n'
-        + 'Output ONLY a JSON array — no wrapper object, no markdown:\n'
-        + '[{"qno":"Q1","type":"MCQ","question":"exact question","answer":"B) correct — reason","marks":1,"topic":"topic"},'
-        + '{"qno":"Q2","type":"Short Answer","question":"exact question","answer":"model answer","marks":2,"topic":"topic"}]\n'
-        + 'Solve every question visible. Output JSON array only.';
+        + 'For EACH question give a complete model answer.\n'
+        + 'Numericals: show Given / Formula / Working / Answer with unit.\n'
+        + 'Output ONLY a JSON array — no wrapper, no markdown:\n'
+        + '[{"qno":"Q1","type":"Short Answer","question":"exact question text","answer":"complete model answer","marks":2,"topic":"topic"}]\n'
+        + 'Solve every question. Output JSON array only.';
 
       const solveRaw = await callGroq(solvePrompt, 1800);
       let solveText = solveRaw.trim();
       if (solveText.startsWith('[')) solveText = '{"solvedQuestions":' + solveText + '}';
       const solveData = safeJSON(solveText, { solvedQuestions: [] });
-      const chunkSolved = Array.isArray(solveData) ? solveData : (solveData.solvedQuestions || []);
+      const chunkSolved = Array.isArray(solveData) ? solveData
+        : (solveData.solvedQuestions || []);
       solvedQuestions = solvedQuestions.concat(chunkSolved);
-      console.log('Chunk', ci+1, 'solved:', chunkSolved.length, 'questions (total so far:', solvedQuestions.length + ')');
+      console.log('Chunk', ci+1, 'solved:', chunkSolved.length, 'questions (total:', solvedQuestions.length + ')');
 
-      // Stream partial results after each chunk — user sees answers incrementally
-      onSolved(solvedQuestions, paperAnalysis);
+      // Stream results after each chunk — user sees answers as they arrive
+      if (chunkSolved.length > 0) onSolved(solvedQuestions, paperAnalysis);
 
-      // Gap before next chunk — respects 8b TPM limit
+      // Gap before next chunk — respects 8b TPM spacing
       if (ci < chunks.length - 1) await sleep(600);
     }
     console.log('Total solved:', solvedQuestions.length, 'questions from', chunks.length, 'chunk(s)');
