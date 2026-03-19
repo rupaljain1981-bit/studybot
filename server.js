@@ -72,10 +72,10 @@ function safeJSON(raw, fallback = {}) {
     const cleaned = raw.replace(/```json|```/g, '').trim();
     const start = cleaned.indexOf('{');
     const end   = cleaned.lastIndexOf('}');
-    if (start === -1 || end === -1) throw new Error('No JSON found');
+    if (start === -1 || end === -1) throw new Error('No JSON object found');
     return JSON.parse(cleaned.slice(start, end + 1));
   } catch(e) {
-    console.error('JSON parse failed:', e.message, '\nRaw:', raw.slice(0, 300));
+    console.error('JSON parse failed:', e.message, '\nRaw preview:', raw.slice(0, 300));
     return fallback;
   }
 }
@@ -294,82 +294,53 @@ Return ONLY the HTML. No markdown.`;
 function buildQPromptA(grade, subject, topic) {
   const isScience = ['Physics','Chemistry','Biology'].includes(subject);
   const isMaths   = subject === 'Mathematics';
-  return `ICSE ${grade} | ${subject} | Topic: ${topic}
+  return `You are an ICSE ${grade} ${subject} examiner. Write questions about: ${topic}
 
-Write 5 MCQs and 5 fill-in-the-blank questions strictly based on the ICSE ${grade} ${subject} syllabus for "${topic}".
-${isScience ? 'Include questions on SI units, scientist names, and definitions as per ICSE.' : ''}
-${isMaths ? 'Include numerical-based MCQs with calculation required.' : ''}
+TASK: Write exactly 5 MCQs and exactly 5 fill-in-the-blank questions based on ICSE ${grade} ${subject} syllabus.
+${isScience ? 'For Science: test SI units, scientist names with years, ICSE definitions.' : ''}
+${isMaths   ? 'For Maths: include calculation-based MCQs.' : ''}
 
-Return ONLY this JSON with real ICSE-standard content — no placeholders:
-{"mcq":[
-{"q":"Complete question 1 about ${topic} as per ICSE?","options":["A) first option","B) second option","C) third option","D) fourth option"],"a":"A) first option","explanation":"ICSE-specific reason why this is correct"},
-{"q":"Complete question 2?","options":["A) opt","B) opt","C) opt","D) opt"],"a":"B) opt","explanation":"reason"},
-{"q":"Complete question 3?","options":["A) opt","B) opt","C) opt","D) opt"],"a":"C) opt","explanation":"reason"},
-{"q":"Complete question 4?","options":["A) opt","B) opt","C) opt","D) opt"],"a":"D) opt","explanation":"reason"},
-{"q":"Complete question 5?","options":["A) opt","B) opt","C) opt","D) opt"],"a":"A) opt","explanation":"reason"}
-],"fillinblanks":[
-{"q":"The SI unit of ________ is ________.","a":"quantity / unit"},
-{"q":"________ stated that ________ (year).","a":"scientist name / law or principle"},
-{"q":"The formula for ________ is ________.","a":"quantity / formula"},
-{"q":"________ and ________ are the two types of ________.","a":"type1 / type2 / category"},
-{"q":"In the ICSE experiment to ________, the main observation is ________.","a":"experiment aim / observation"}
-]}`;
+Output ONLY a JSON object. Start with { and end with }. No other text before or after.
+
+Example format (replace with real ${topic} content):
+{"mcq":[{"q":"What is the SI unit of force?","options":["A) Joule","B) Newton","C) Watt","D) Pascal"],"a":"B) Newton","explanation":"Force is measured in Newtons (N) as per ICSE, named after Isaac Newton."},{"q":"Q2 here?","options":["A) opt","B) opt","C) opt","D) opt"],"a":"A) opt","explanation":"reason"},{"q":"Q3?","options":["A) opt","B) opt","C) opt","D) opt"],"a":"C) opt","explanation":"reason"},{"q":"Q4?","options":["A) opt","B) opt","C) opt","D) opt"],"a":"D) opt","explanation":"reason"},{"q":"Q5?","options":["A) opt","B) opt","C) opt","D) opt"],"a":"B) opt","explanation":"reason"}],"fillinblanks":[{"q":"The SI unit of ________ is ________.","a":"force / Newton"},{"q":"________ (nationality, year) discovered ________.","a":"scientist / concept"},{"q":"The formula for ________ is ________.","a":"quantity / formula"},{"q":"________ and ________ are two types of ________.","a":"type1 / type2 / category"},{"q":"In ICSE, the experiment to verify ________ uses ________ as the main apparatus.","a":"law / apparatus"}]}
+
+Now write the actual questions about ${topic} for ICSE ${grade} ${subject}. Output JSON only.`;
 }
 
 function buildQPromptB(grade, subject, topic) {
   const isScience = ['Physics','Chemistry','Biology'].includes(subject);
-  return `ICSE ${grade} | ${subject} | Topic: ${topic}
+  return `You are an ICSE ${grade} ${subject} examiner. Write questions about: ${topic}
 
-Write 5 true/false statements and 3 odd-one-out questions strictly based on ICSE ${grade} ${subject} syllabus for "${topic}".
-${isScience ? 'Include statements about SI units, scientists, experiments, and ICSE-specific facts.' : ''}
+TASK: Write exactly 5 true/false statements and exactly 3 odd-one-out questions based on ICSE ${grade} ${subject} syllabus.
+${isScience ? 'Test ICSE-specific facts about SI units, scientists, experiments.' : ''}
 
-Return ONLY this JSON with real specific content:
-{"truefalse":[
-{"q":"Specific true ICSE fact about ${topic}.","a":"True","explanation":"ICSE textbook reason"},
-{"q":"A common misconception about ${topic} that ICSE students make.","a":"False","explanation":"The correct ICSE fact is: ..."},
-{"q":"Another specific true statement about ${topic} as per ICSE syllabus.","a":"True","explanation":"reason"},
-{"q":"An incorrect statement about ${topic} that tests ICSE knowledge.","a":"False","explanation":"Correction: ..."},
-{"q":"A true statement about ${topic} that requires ICSE-level understanding.","a":"True","explanation":"reason"}
-],"oddonesout":[
-{"q":"Which is the odd one out? A) item1 B) item2 C) item3 D) item4","a":"B) item2","explanation":"It is the only one that does not belong because..."},
-{"q":"Which is the odd one out? A) item1 B) item2 C) item3 D) item4","a":"C) item3","explanation":"reason"},
-{"q":"Which is the odd one out? A) item1 B) item2 C) item3 D) item4","a":"D) item4","explanation":"reason"}
-]}`;
+Output ONLY a JSON object. Start with { and end with }. No other text before or after.
+
+Example format (replace with real ${topic} content):
+{"truefalse":[{"q":"The SI unit of velocity is metre per second.","a":"True","explanation":"Velocity = displacement/time, SI unit is m/s as per ICSE."},{"q":"Mass and weight are the same quantity.","a":"False","explanation":"Mass is the amount of matter (kg); weight is gravitational force on mass (N)."},{"q":"T3 statement here.","a":"True","explanation":"reason"},{"q":"T4 statement here.","a":"False","explanation":"correction"},{"q":"T5 statement here.","a":"True","explanation":"reason"}],"oddonesout":[{"q":"Which is the odd one out? A) item1  B) item2  C) item3  D) item4","a":"B) item2","explanation":"item2 is the only one that does not belong because..."},{"q":"Which is the odd one out? A) x  B) y  C) z  D) w","a":"C) z","explanation":"reason"},{"q":"Which is the odd one out? A) p  B) q  C) r  D) s","a":"D) s","explanation":"reason"}]}
+
+Now write the actual questions about ${topic} for ICSE ${grade} ${subject}. Output JSON only.`;
 }
 
 function buildQPromptC(grade, subject, topic) {
   const isScience = ['Physics','Chemistry','Biology'].includes(subject);
   const isMaths   = subject === 'Mathematics';
-  return `ICSE ${grade} | ${subject} | Topic: ${topic}
+  return `You are an ICSE ${grade} ${subject} examiner. Write questions about: ${topic}
 
-Write 3 assertion-reason, 5 short-answer, and 3 long-answer questions strictly as per ICSE ${grade} ${subject} syllabus for "${topic}".
-${isScience ? `
-- Include at least 1 experiment-based question (ICSE practical).
-- Include at least 1 numerical problem with given values and SI units.
-- Short answers should match ICSE marking scheme (1-3 marks).
-- Long answers should require diagrams, derivations, or experiments as per ICSE board pattern.
-` : ''}
-${isMaths ? `
-- Include numerical problems requiring step-by-step working.
-- Match ICSE board exam question style.
-` : ''}
+TASK: Write exactly 3 assertion-reason questions, exactly 5 short-answer questions, and exactly 3 long-answer questions based on ICSE ${grade} ${subject} syllabus.
+${isScience ? 'Include: 1 experiment question, 1 numerical with given values and SI units, 1 table-based distinction question.' : ''}
+${isMaths   ? 'Include: numerical problems with step-by-step working required.' : ''}
 
-Return ONLY this JSON with specific real ICSE content — no placeholders:
-{"assertionreason":[
-{"assertion":"Specific true ICSE-level claim about ${topic}.","reason":"The correct scientific/mathematical reason behind that claim.","a":"Both Assertion and Reason are true, and Reason is the correct explanation","explanation":"Why R correctly explains A"},
-{"assertion":"Another true ICSE claim about ${topic}.","reason":"A plausible but incorrect reason.","a":"Assertion is true but Reason is false","explanation":"The correct reason is: ..."},
-{"assertion":"A true ICSE-level claim about ${topic}.","reason":"A true but unrelated reason.","a":"Both Assertion and Reason are true, but Reason is NOT the correct explanation","explanation":"What actually explains A"}
-],"shortanswer":[
-{"q":"Define [ICSE-specific term from ${topic}] and state its SI unit.","a":"ICSE definition. SI unit: [unit] ([symbol]).","marks":2},
-{"q":"State [law or principle from ${topic}] and give its mathematical expression.","a":"Statement of law as per ICSE. Mathematical form: formula with all symbols defined.","marks":2},
-{"q":"${isScience ? 'In the ICSE experiment related to '+topic+', state the aim and one precaution.' : 'State and prove: ICSE-standard result related to '+topic+'.'}","a":"${isScience ? 'Aim: ... Precaution: ...' : 'Statement and proof.'}","marks":2},
-{"q":"Distinguish between [concept A] and [concept B] in ${topic}. [ICSE tabular format]","a":"<table class='ans-table'><tr><th>Basis</th><th>Concept A</th><th>Concept B</th></tr><tr><td>Definition</td><td>def A</td><td>def B</td></tr><tr><td>SI Unit</td><td>unit A</td><td>unit B</td></tr><tr><td>Example</td><td>eg A</td><td>eg B</td></tr></table>","marks":3},
-{"q":"${isScience ? 'A numerical: A body has [given values with SI units]. Calculate [quantity to find].' : 'Solve: ICSE board-style numerical on '+topic+'.'}","a":"Given: values with units. Formula: ... Working: step-by-step. Answer: value + SI unit.","marks":3}
-],"longanswer":[
-{"q":"${isScience ? 'Describe the ICSE experiment to study '+topic+'. Include aim, labelled diagram (described), procedure, observation, and conclusion.' : 'Explain '+topic+' in detail with proof, examples, and ICSE board-level working.'}","a":"${isScience ? 'Aim: ... Apparatus: ... Labelled diagram: [describe parts]. Procedure: steps 1-5. Observation: ... Result: ... Precautions: ...' : 'Introduction. Theorem/concept. Proof with steps. ICSE examples. Conclusion.'}","marks":5},
-{"q":"With the help of a labelled diagram, explain [main mechanism or process in ${topic}]. State all relevant laws, formulas with SI units, and give one solved numerical.","a":"Diagram description with labelled parts. Laws involved. Formulae with SI units. Derivation if applicable. Solved numerical: Given → Formula → Working → Answer.","marks":6},
-{"q":"Compare and contrast [two major concepts in ${topic}] using a table with at least 5 points. Then solve: [ICSE board-style numerical].","a":"<table class='ans-table'><tr><th>Point</th><th>Concept A</th><th>Concept B</th></tr><tr><td>Definition</td><td>...</td><td>...</td></tr><tr><td>Formula</td><td>...</td><td>...</td></tr><tr><td>SI Unit</td><td>...</td><td>...</td></tr><tr><td>Example</td><td>...</td><td>...</td></tr><tr><td>Application</td><td>...</td><td>...</td></tr></table>Numerical solution: Given → Working → Answer with unit.","marks":6}
-]}`;
+IMPORTANT for short and long answers: the "a" field must contain a complete model answer, not a placeholder.
+For tabular answers, write the table content as plain text like: "Basis | Concept A | Concept B --- Definition | def A | def B --- SI Unit | unit A | unit B"
+For numericals, write: "Given: ... Formula: ... Working: ... Answer: value + unit"
+
+Output ONLY a JSON object. Start with { and end with }. No other text before or after.
+
+{"assertionreason":[{"assertion":"A true factual claim about ${topic} as per ICSE.","reason":"The correct scientific reason for that claim.","a":"Both Assertion and Reason are true, and Reason is the correct explanation","explanation":"Brief clarification of why R explains A"},{"assertion":"Another true claim about ${topic}.","reason":"A wrong reason that sounds plausible.","a":"Assertion is true but Reason is false","explanation":"The correct reason is: write it here"},{"assertion":"A third true ICSE claim about ${topic}.","reason":"A true statement that does not explain the assertion.","a":"Both Assertion and Reason are true, but Reason is NOT the correct explanation","explanation":"What actually explains the assertion"}],"shortanswer":[{"q":"Define [key ICSE term from ${topic}] and state its SI unit.","a":"Definition as per ICSE syllabus. SI unit: unit name (symbol).","marks":2},{"q":"State [law or principle from ${topic}] and write its mathematical expression.","a":"State the law exactly as in ICSE textbook. Mathematical form: write formula and define each symbol.","marks":2},{"q":"${isScience ? 'State the aim and one important precaution for the ICSE experiment on '+topic+'.' : 'State and briefly prove a key result in '+topic+'.'}","a":"${isScience ? 'Aim: write the complete aim. Precaution: write one specific precaution.' : 'State the result. Proof: step-by-step.'}","marks":2},{"q":"Distinguish between [concept A from ${topic}] and [concept B from ${topic}] on any three bases.","a":"Basis 1: A differs from B in ... | Basis 2: A has ... while B has ... | Basis 3: Example of A is ... while B is ...","marks":3},{"q":"${isScience ? 'A numerical problem: state specific values with SI units related to '+topic+' and ask student to calculate a specific quantity.' : 'Solve a step-by-step ICSE board problem on '+topic+'.'}","a":"Given: list values with units. Formula: write formula. Working: step 1 calculation, step 2 calculation. Answer: numerical value with correct SI unit.","marks":3}],"longanswer":[{"q":"${isScience ? 'Describe the ICSE experiment to study '+topic+'. Include aim, apparatus, procedure (5 steps), observation, result and two precautions.' : 'Explain '+topic+' in detail with proof, ICSE examples and board-level working.'}","a":"${isScience ? 'Aim: complete aim statement. Apparatus: list items. Procedure: 1. step one 2. step two 3. step three 4. step four 5. step five. Observation: write what is observed. Result: write conclusion. Precautions: 1. precaution one 2. precaution two.' : 'Introduction. Main concept explanation. Proof with mathematical steps. Three examples. Conclusion.'}","marks":5},{"q":"With the help of a labelled diagram, explain [main concept in ${topic}]. State the relevant law, derive the key formula showing each step, and solve one numerical.","a":"Diagram: describe each labelled part and its function. Law: state it exactly. Derivation: step 1 → step 2 → step 3 → final formula with SI unit. Numerical: Given values with units → Formula → Working → Answer with unit.","marks":6},{"q":"Compare [concept A] and [concept B] in ${topic} on five different bases in tabular form. Hence solve: write a specific numerical problem with given values.","a":"Table: Basis | Concept A | Concept B --- Definition | def A | def B --- Formula | formula A | formula B --- SI Unit | unit A | unit B --- Example | example A | example B --- Application | use A | use B. Numerical: Given → Formula → Working → Answer.","marks":6}]}
+
+Now write the actual questions about ${topic} for ICSE ${grade} ${subject}. Output JSON only.`;
 }
 
 // ── Bank prompt ───────────────────────────────────────────────────────────────
@@ -410,12 +381,21 @@ async function generateQuestions(grade, subject, topic) {
   const [rawA, rawB, rawC] = await Promise.all([
     callGroq(buildQPromptA(grade, subject, topic), 1800),
     callGroq(buildQPromptB(grade, subject, topic), 1400),
-    callGroq(buildQPromptC(grade, subject, topic), 2500)
+    callGroq(buildQPromptC(grade, subject, topic), 2800)
   ]);
+
   const questions = { mcq:[], fillinblanks:[], truefalse:[], oddonesout:[], assertionreason:[], shortanswer:[], longanswer:[] };
-  Object.assign(questions, safeJSON(rawA, {}));
-  Object.assign(questions, safeJSON(rawB, {}));
-  Object.assign(questions, safeJSON(rawC, {}));
+
+  const pA = safeJSON(rawA, null);
+  const pB = safeJSON(rawB, null);
+  const pC = safeJSON(rawC, null);
+
+  if (pA) { Object.assign(questions, pA); } else { console.error('PromptA parse FAILED. Raw:', rawA.slice(0,400)); }
+  if (pB) { Object.assign(questions, pB); } else { console.error('PromptB parse FAILED. Raw:', rawB.slice(0,400)); }
+  if (pC) { Object.assign(questions, pC); } else { console.error('PromptC parse FAILED. Raw:', rawC.slice(0,400)); }
+
+  console.log(`Questions generated — mcq:${questions.mcq.length} fib:${questions.fillinblanks.length} tf:${questions.truefalse.length} ooo:${questions.oddonesout.length} ar:${questions.assertionreason.length} sa:${questions.shortanswer.length} la:${questions.longanswer.length}`);
+
   return questions;
 }
 
