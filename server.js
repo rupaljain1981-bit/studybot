@@ -20,36 +20,45 @@ const upload = multer({
   }
 });
 
-// ── Groq helper with automatic fallback ──────────────────────────────────────
-// Primary: llama-3.3-70b-versatile (100k tokens/day — best quality)
-// Fallback: llama-3.1-8b-instant   (500k tokens/day — kicks in when primary hits limit)
+// ── Subject classification ────────────────────────────────────────────────────
+const SCIENCE  = ['Physics','Chemistry','Biology','Environmental Science'];
+const MATHS    = ['Mathematics'];
+const HUMANITY = ['History & Civics','History','Geography','Economics','Commercial Studies','Accountancy','Business Studies','Psychology','Sociology','Political Science'];
+const LANGUAGE = ['English Language','English Literature','Hindi','English'];
+const COMP     = ['Computer Applications','Computer Science'];
 
-const SYSTEM_PROMPT = `You are a senior ICSE/ISC curriculum expert and examiner with 20+ years experience.
+function subjectType(s) {
+  if (SCIENCE.includes(s))  return 'science';
+  if (MATHS.includes(s))    return 'maths';
+  if (HUMANITY.includes(s)) return 'humanity';
+  if (LANGUAGE.includes(s)) return 'language';
+  if (COMP.includes(s))     return 'computer';
+  return 'general';
+}
+
+// ── Groq helper ───────────────────────────────────────────────────────────────
+const SYSTEM_PROMPT = `You are a senior ICSE/ISC curriculum expert, examiner, and question paper setter with 20+ years of experience setting and marking actual ICSE board papers.
 CRITICAL RULES:
-1. All content MUST strictly follow the ICSE/ISC syllabus — not CBSE, not international.
-2. For Science: always include SI units, scientist names with nationality and year of discovery, step-by-step derivations where applicable, solved numerical examples, and reference to ICSE practical experiments.
-3. For all subjects: use ICSE-specific terminology, examples from ICSE textbooks (Selina, S.Chand, Frank), and exam-pattern questions.
-4. Return ONLY valid JSON or HTML exactly as instructed. No markdown fences, no preamble, no explanation.`;
+1. Follow ICSE/ISC syllabus and exam paper patterns EXACTLY — not CBSE, not international boards.
+2. Science: include SI units, scientist names (nationality, year), step-by-step derivations, solved numericals, ICSE practical experiments.
+3. Maths: follow ICSE board paper structure — Section A short numericals, Section B long working problems. Show every step.
+4. History & Civics / Geography / Economics: follow actual ICSE exam structure — source analysis, timeline questions, cause-effect, significance questions, structured essays.
+5. Questions must be genuinely exam-worthy — not trivial. Match real ICSE board difficulty and language.
+6. Return ONLY valid JSON or HTML exactly as instructed. No markdown fences, no preamble, no explanation.`;
 
 async function groqCall(model, prompt, maxTokens) {
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` },
     body: JSON.stringify({
       model,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user',   content: prompt }
-      ],
+      messages: [{ role:'system', content:SYSTEM_PROMPT }, { role:'user', content:prompt }],
       max_tokens: maxTokens,
       temperature: 0.3
     })
   });
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error?.message || 'Groq API error');
-  }
-  const data = await response.json();
+  if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || 'Groq error'); }
+  const data = await res.json();
   return data.choices[0].message.content;
 }
 
@@ -57,331 +66,428 @@ async function callGroq(prompt, maxTokens = 2048) {
   try {
     return await groqCall('llama-3.3-70b-versatile', prompt, maxTokens);
   } catch(e) {
-    const isRateLimit = e.message.includes('rate_limit') || e.message.includes('quota') || e.message.includes('Limit') || e.message.includes('429');
-    if (isRateLimit) {
-      console.log('Primary model rate limited — switching to llama-3.1-8b-instant (500k TPD)');
+    if (e.message.includes('rate_limit') || e.message.includes('quota') || e.message.includes('Limit') || e.message.includes('429') || e.message.includes('exceeded')) {
+      console.log('70b rate limited — falling back to llama-3.1-8b-instant');
       return await groqCall('llama-3.1-8b-instant', prompt, maxTokens);
     }
     throw e;
   }
 }
 
-// ── Safe JSON parse ───────────────────────────────────────────────────────────
 function safeJSON(raw, fallback = {}) {
   try {
-    const cleaned = raw.replace(/```json|```/g, '').trim();
-    const start = cleaned.indexOf('{');
-    const end   = cleaned.lastIndexOf('}');
-    if (start === -1 || end === -1) throw new Error('No JSON object found');
-    return JSON.parse(cleaned.slice(start, end + 1));
+    const cleaned = raw.replace(/```json|```/g,'').trim();
+    const s = cleaned.indexOf('{'), e = cleaned.lastIndexOf('}');
+    if (s===-1||e===-1) throw new Error('No JSON found');
+    return JSON.parse(cleaned.slice(s, e+1));
   } catch(e) {
-    console.error('JSON parse failed:', e.message, '\nRaw preview:', raw.slice(0, 300));
+    console.error('JSON parse failed:', e.message, '\nRaw:', raw.slice(0,300));
     return fallback;
   }
 }
 
-// ── Notes prompt ──────────────────────────────────────────────────────────────
+// ── NOTES PROMPT ──────────────────────────────────────────────────────────────
 function buildNotesPrompt(grade, subject, topic) {
-  const isScience = ['Physics','Chemistry','Biology'].includes(subject);
-  const isMaths   = subject === 'Mathematics';
+  const type = subjectType(subject);
 
-  return `ICSE ${grade} | Subject: ${subject} | Topic: ${topic}
+  const scienceExtra = `
+SCIENCE — INCLUDE ALL:
+- Every quantity: symbol, SI unit, unit symbol, formula
+- Scientist name, nationality, year for each law/principle
+- Full step-by-step derivations (show each algebraic step)
+- Minimum 2 solved ICSE-style numericals (Given/Find/Formula/Working/Answer)
+- ICSE practical experiment: Aim, Apparatus, Procedure, Observation, Result, Precautions
+- Comparison table for related concepts (e.g. speed vs velocity, mass vs weight)
+- Labelled diagram description with numbered parts and functions`;
 
-Create thorough, exam-ready study notes following the ICSE ${grade} syllabus exactly.
-${isScience ? `
-SCIENCE REQUIREMENTS — include ALL of these:
-- Every quantity: name, symbol, SI unit, formula. Example: Force (F), SI unit: Newton (N), F = ma
-- Scientist references: full name, nationality, year. Example: "Isaac Newton (English, 1687)"
-- Step-by-step derivations for every formula with each mathematical step shown
-- At least 2 solved numerical examples with full working, units at each step, and final answer boxed
-- ICSE practical experiment: aim, materials, procedure steps, observation, result
-- Differences tables where relevant (e.g. mass vs weight, speed vs velocity)
-- Laws and principles stated exactly as per ICSE syllabus
-` : ''}
-${isMaths ? `
-MATHS REQUIREMENTS — include ALL of these:
-- Every formula with proof/derivation where applicable
-- At least 3 solved examples showing full step-by-step working
-- Common mistakes to avoid
-- ICSE board exam style problems
-` : ''}
+  const mathsExtra = `
+MATHEMATICS — INCLUDE ALL:
+- Every formula/theorem with proof
+- Minimum 3 solved ICSE board-style problems showing every step
+- Common mistakes students make in exams
+- ICSE board exam shortcuts and tips`;
 
-Return ONLY this HTML — no markdown, no backticks, no extra text. Fill every section with rich real ICSE content:
+  const humanityExtra = `
+HISTORY & CIVICS / GEOGRAPHY / ECONOMICS — INCLUDE ALL:
+- Key dates, events, people, places in a structured timeline or table
+- Causes and effects clearly separated
+- Significance and impact sections
+- Comparison tables where relevant (e.g. Lok Sabha vs Rajya Sabha)
+- Maps / diagrams described in text
+- ICSE source-based question format notes (how to analyse a source)
+- Key terms defined exactly as per ICSE textbook`;
+
+  const extras = type==='science' ? scienceExtra : type==='maths' ? mathsExtra : type==='humanity' ? humanityExtra : '';
+
+  return `ICSE ${grade} | ${subject} | Topic: ${topic}
+${extras}
+
+Create comprehensive, exam-ready study notes strictly following the ICSE ${grade} ${subject} syllabus.
+Return ONLY this HTML — replace every placeholder with real ICSE content. No markdown, no backticks:
 
 <div class="notes-content">
-
   <section class="key-concepts">
     <h2>🔑 Key Concepts</h2>
-    <ul>
-      <li><strong>Concept name:</strong> precise ICSE definition</li>
-      <li><strong>Another concept:</strong> definition</li>
-    </ul>
+    <ul><li><strong>Term:</strong> ICSE definition</li><li><strong>Term:</strong> definition</li></ul>
   </section>
-
   <section class="detailed-notes">
     <h2>📚 Detailed Notes</h2>
-
-    <h3>Subtopic heading</h3>
-    <p>Detailed explanation as per ICSE syllabus...</p>
-
-    ${isScience ? `
+    <h3>Subtopic 1</h3><p>Detailed ICSE-syllabus explanation...</p>
+    ${type==='science' ? `
     <h3>Key Laws / Principles</h3>
-    <p><strong>Law name (Scientist Name, Nationality, Year):</strong> exact statement of the law as per ICSE.</p>
-
-    <h3>SI Units &amp; Quantities</h3>
-    <table class="notes-table">
-      <thead><tr><th>Quantity</th><th>Symbol</th><th>SI Unit</th><th>Unit Symbol</th><th>Formula</th></tr></thead>
-      <tbody>
-        <tr><td>Quantity 1</td><td>symbol</td><td>unit name</td><td>symbol</td><td>formula</td></tr>
-        <tr><td>Quantity 2</td><td>symbol</td><td>unit name</td><td>symbol</td><td>formula</td></tr>
-        <tr><td>Quantity 3</td><td>symbol</td><td>unit name</td><td>symbol</td><td>formula</td></tr>
-      </tbody>
-    </table>
-
-    <h3>Derivations</h3>
-    <div class="derivation-block">
-      <div class="derivation-title">Derivation of [formula name]</div>
-      <div class="derivation-steps">
-        <div class="d-step"><span class="d-num">1</span><span class="d-text">Starting equation or assumption</span></div>
-        <div class="d-step"><span class="d-num">2</span><span class="d-text">Next mathematical step</span></div>
-        <div class="d-step"><span class="d-num">3</span><span class="d-text">Simplification step</span></div>
-        <div class="d-step"><span class="d-num">4</span><span class="d-text">Final result</span></div>
-      </div>
-      <div class="derivation-result">∴ Final formula here</div>
-    </div>
-
+    <p><strong>Law Name (Scientist, Nationality, Year):</strong> Exact ICSE statement.</p>
+    <h3>SI Units &amp; Formulae</h3>
+    <table class="notes-table"><thead><tr><th>Quantity</th><th>Symbol</th><th>SI Unit</th><th>Symbol</th><th>Formula</th></tr></thead>
+    <tbody><tr><td>quantity</td><td>sym</td><td>unit</td><td>sym</td><td>formula</td></tr></tbody></table>
+    <h3>Derivation</h3>
+    <div class="derivation-block"><div class="derivation-title">Derivation of [formula]</div>
+    <div class="derivation-steps"><div class="d-step"><span class="d-num">1</span><span class="d-text">Starting point</span></div>
+    <div class="d-step"><span class="d-num">2</span><span class="d-text">Step 2</span></div>
+    <div class="d-step"><span class="d-num">3</span><span class="d-text">Final step</span></div></div>
+    <div class="derivation-result">∴ Final formula with SI unit</div></div>
     <h3>Solved Numericals</h3>
-    <div class="numerical-block">
-      <div class="num-title">Numerical 1</div>
-      <div class="num-given"><strong>Given:</strong> list of given values with units</div>
-      <div class="num-find"><strong>To find:</strong> what we need to calculate</div>
-      <div class="num-formula"><strong>Formula:</strong> relevant formula</div>
-      <div class="num-working">
-        <strong>Working:</strong><br>
-        Step 1: substitute values...<br>
-        Step 2: calculation...<br>
-        Step 3: result with units
-      </div>
-      <div class="num-answer">Answer: value with correct SI unit</div>
-    </div>
-
+    <div class="numerical-block"><div class="num-title">Numerical 1</div>
+    <div class="num-given"><strong>Given:</strong> values with units</div>
+    <div class="num-find"><strong>To Find:</strong> quantity</div>
+    <div class="num-formula"><strong>Formula:</strong> formula</div>
+    <div class="num-working"><strong>Working:</strong> step-by-step calculation</div>
+    <div class="num-answer">Answer: value with SI unit</div></div>
     <h3>Comparison Table</h3>
-    <table class="notes-table">
-      <thead><tr><th>Basis</th><th>Concept A</th><th>Concept B</th></tr></thead>
-      <tbody>
-        <tr><td>Definition</td><td>definition A</td><td>definition B</td></tr>
-        <tr><td>SI Unit</td><td>unit A</td><td>unit B</td></tr>
-        <tr><td>Formula</td><td>formula A</td><td>formula B</td></tr>
-        <tr><td>Example</td><td>example A</td><td>example B</td></tr>
-      </tbody>
-    </table>
-
+    <table class="notes-table"><thead><tr><th>Basis</th><th>Concept A</th><th>Concept B</th></tr></thead>
+    <tbody><tr><td>Definition</td><td>def A</td><td>def B</td></tr><tr><td>SI Unit</td><td>unit</td><td>unit</td></tr><tr><td>Formula</td><td>formula</td><td>formula</td></tr><tr><td>Example</td><td>eg</td><td>eg</td></tr></tbody></table>
     <h3>🔬 ICSE Practical Experiment</h3>
     <div class="experiment-block">
-      <div class="exp-row"><span class="exp-label">Aim:</span><span class="exp-content">aim of experiment</span></div>
-      <div class="exp-row"><span class="exp-label">Materials Required:</span><span class="exp-content">list of apparatus</span></div>
-      <div class="exp-row"><span class="exp-label">Procedure:</span>
-        <ol class="exp-steps">
-          <li>Step 1</li>
-          <li>Step 2</li>
-          <li>Step 3</li>
-        </ol>
-      </div>
-      <div class="exp-row"><span class="exp-label">Observation:</span><span class="exp-content">what is observed</span></div>
-      <div class="exp-row"><span class="exp-label">Result / Conclusion:</span><span class="exp-content">conclusion</span></div>
-      <div class="exp-row"><span class="exp-label">Precautions:</span><span class="exp-content">list precautions</span></div>
+    <div class="exp-row"><span class="exp-label">Aim:</span><span class="exp-content">aim</span></div>
+    <div class="exp-row"><span class="exp-label">Apparatus:</span><span class="exp-content">list</span></div>
+    <div class="exp-row"><span class="exp-label">Procedure:</span><ol class="exp-steps"><li>step 1</li><li>step 2</li><li>step 3</li></ol></div>
+    <div class="exp-row"><span class="exp-label">Observation:</span><span class="exp-content">observation</span></div>
+    <div class="exp-row"><span class="exp-label">Result:</span><span class="exp-content">conclusion</span></div>
+    <div class="exp-row"><span class="exp-label">Precautions:</span><span class="exp-content">precautions</span></div>
     </div>
-
     <h3>Labelled Diagram</h3>
-    <div class="diagram-box">
-      <div class="diagram-title">Diagram: [name of diagram]</div>
-      <div class="diagram-description">
-        <p><strong>Description:</strong> detailed description of what the diagram shows</p>
-        <div class="diagram-labels">
-          <div class="diagram-part"><span class="part-num">1</span><span class="part-name">Part name</span><span class="part-desc">— its function or description</span></div>
-          <div class="diagram-part"><span class="part-num">2</span><span class="part-name">Part name</span><span class="part-desc">— its function</span></div>
-          <div class="diagram-part"><span class="part-num">3</span><span class="part-name">Part name</span><span class="part-desc">— its function</span></div>
-          <div class="diagram-part"><span class="part-num">4</span><span class="part-name">Part name</span><span class="part-desc">— its function</span></div>
-        </div>
-      </div>
-    </div>
-    ` : ''}
-
-    ${isMaths ? `
+    <div class="diagram-box"><div class="diagram-title">Diagram: name</div>
+    <div class="diagram-labels">
+    <div class="diagram-part"><span class="part-num">1</span><span class="part-name">Part</span><span class="part-desc">— function</span></div>
+    <div class="diagram-part"><span class="part-num">2</span><span class="part-name">Part</span><span class="part-desc">— function</span></div>
+    </div></div>` : ''}
+    ${type==='maths' ? `
     <h3>Solved Examples</h3>
-    <div class="numerical-block">
-      <div class="num-title">Example 1</div>
-      <div class="num-given"><strong>Question:</strong> ICSE-style problem statement</div>
-      <div class="num-working"><strong>Solution:</strong><br>Step 1: ...<br>Step 2: ...<br>Step 3: ...</div>
-      <div class="num-answer">Answer: final answer</div>
-    </div>
-    ` : ''}
-
+    <div class="numerical-block"><div class="num-title">Example 1</div>
+    <div class="num-given"><strong>Question:</strong> ICSE board style problem</div>
+    <div class="num-working"><strong>Solution:</strong> step 1 → step 2 → step 3</div>
+    <div class="num-answer">Answer: final answer</div></div>` : ''}
+    ${type==='humanity' ? `
+    <h3>Key Dates &amp; Events</h3>
+    <table class="notes-table"><thead><tr><th>Year</th><th>Event</th><th>Significance</th></tr></thead>
+    <tbody><tr><td>year</td><td>event</td><td>significance</td></tr></tbody></table>
+    <h3>Causes &amp; Effects</h3>
+    <table class="notes-table"><thead><tr><th>Causes</th><th>Effects / Consequences</th></tr></thead>
+    <tbody><tr><td>cause 1</td><td>effect 1</td></tr><tr><td>cause 2</td><td>effect 2</td></tr></tbody></table>
+    <h3>Comparison</h3>
+    <table class="notes-table"><thead><tr><th>Basis</th><th>Concept A</th><th>Concept B</th></tr></thead>
+    <tbody><tr><td>basis</td><td>A</td><td>B</td></tr></tbody></table>` : ''}
   </section>
-
   <section class="memory-tricks">
-    <h2>💡 Memory Tricks &amp; Mnemonics</h2>
-    <p><strong>Mnemonic for [concept]:</strong></p>
+    <h2>💡 Memory Tricks</h2>
     <div class="mnemonic-row">
-      <div class="mnemonic-box"><span class="mnemonic-letter">A</span><span class="mnemonic-word">Word for A</span></div>
-      <div class="mnemonic-box"><span class="mnemonic-letter">B</span><span class="mnemonic-word">Word for B</span></div>
-      <div class="mnemonic-box"><span class="mnemonic-letter">C</span><span class="mnemonic-word">Word for C</span></div>
+      <div class="mnemonic-box"><span class="mnemonic-letter">A</span><span class="mnemonic-word">word</span></div>
+      <div class="mnemonic-box"><span class="mnemonic-letter">B</span><span class="mnemonic-word">word</span></div>
+      <div class="mnemonic-box"><span class="mnemonic-letter">C</span><span class="mnemonic-word">word</span></div>
     </div>
-    <p><strong>Tip:</strong> another memory trick</p>
-    <p><strong>Tip:</strong> another technique</p>
+    <p><strong>Tip:</strong> another memory technique</p>
   </section>
-
   <section class="important-formulas">
-    <h2>📐 Key Formulas &amp; Definitions</h2>
-    <div class="formula-box"><div class="formula-title">Formula / Term Name</div><div class="formula-eq">Formula or exact ICSE definition</div></div>
-    <div class="formula-box"><div class="formula-title">Another Formula</div><div class="formula-eq">Formula with SI unit noted</div></div>
+    <h2>📐 Key Formulas / Definitions</h2>
+    <div class="formula-box"><div class="formula-title">Name</div><div class="formula-eq">formula or definition</div></div>
+    <div class="formula-box"><div class="formula-title">Name</div><div class="formula-eq">formula or definition</div></div>
   </section>
-
   <section class="quick-summary">
     <h2>⚡ Quick Revision Summary</h2>
-    <ul>
-      <li>Key point 1 — specific fact</li>
-      <li>Key point 2 — specific fact</li>
-      <li>Key point 3 — specific fact</li>
-      <li>Key point 4 — specific fact</li>
-      <li>Key point 5 — specific fact</li>
-    </ul>
+    <ul><li>Point 1</li><li>Point 2</li><li>Point 3</li><li>Point 4</li><li>Point 5</li></ul>
   </section>
-
   <section class="infographic">
     <h2>🗺️ Concept Map</h2>
     <div class="concept-map">
       <div class="cm-center">${topic}</div>
       <div class="cm-branches">
-        <div class="cm-branch">
-          <div class="cm-node cm-blue">Branch label 1</div>
-          <div class="cm-children">
-            <div class="cm-child">specific detail A</div>
-            <div class="cm-child">specific detail B</div>
-          </div>
-        </div>
-        <div class="cm-branch">
-          <div class="cm-node cm-green">Branch label 2</div>
-          <div class="cm-children">
-            <div class="cm-child">specific detail C</div>
-            <div class="cm-child">specific detail D</div>
-          </div>
-        </div>
-        <div class="cm-branch">
-          <div class="cm-node cm-amber">Branch label 3</div>
-          <div class="cm-children">
-            <div class="cm-child">specific detail E</div>
-            <div class="cm-child">specific detail F</div>
-          </div>
-        </div>
-        <div class="cm-branch">
-          <div class="cm-node cm-coral">Branch label 4</div>
-          <div class="cm-children">
-            <div class="cm-child">specific detail G</div>
-          </div>
-        </div>
+        <div class="cm-branch"><div class="cm-node cm-blue">Branch 1</div><div class="cm-children"><div class="cm-child">detail A</div><div class="cm-child">detail B</div></div></div>
+        <div class="cm-branch"><div class="cm-node cm-green">Branch 2</div><div class="cm-children"><div class="cm-child">detail C</div><div class="cm-child">detail D</div></div></div>
+        <div class="cm-branch"><div class="cm-node cm-amber">Branch 3</div><div class="cm-children"><div class="cm-child">detail E</div></div></div>
+        <div class="cm-branch"><div class="cm-node cm-coral">Branch 4</div><div class="cm-children"><div class="cm-child">detail F</div></div></div>
       </div>
     </div>
   </section>
-
 </div>
-
-Replace ALL placeholder text with specific, accurate ICSE ${grade} content about "${topic}".
-Return ONLY the HTML. No markdown.`;
+Replace ALL placeholder content with real accurate ICSE ${grade} ${subject} content about "${topic}". Return ONLY the HTML.`;
 }
 
-// ── Question prompts ──────────────────────────────────────────────────────────
+// ── QUESTION PROMPTS (subject-aware) ──────────────────────────────────────────
 function buildQPromptA(grade, subject, topic) {
-  const isScience = ['Physics','Chemistry','Biology'].includes(subject);
-  const isMaths   = subject === 'Mathematics';
-  return `You are an ICSE ${grade} ${subject} examiner. Write questions about: ${topic}
+  const type = subjectType(subject);
 
-TASK: Write exactly 5 MCQs and exactly 5 fill-in-the-blank questions based on ICSE ${grade} ${subject} syllabus.
-${isScience ? 'For Science: test SI units, scientist names with years, ICSE definitions.' : ''}
-${isMaths   ? 'For Maths: include calculation-based MCQs.' : ''}
+  const scienceInstr = `For ICSE ${subject}:
+- MCQ options must include plausible distractors based on common ICSE student misconceptions
+- At least 2 MCQs must involve numerical calculation (e.g. "A force of 10N acts on 2kg mass. Find acceleration")
+- Fill blanks must test SI units, scientist names, laws, and formulae exactly as stated in ICSE syllabus`;
 
-Output ONLY a JSON object. Start with { and end with }. No other text before or after.
+  const mathsInstr = `For ICSE Mathematics:
+- MCQs must be calculation-based, not definition-based (e.g. "If x² - 5x + 6 = 0, find x")
+- Fill blanks must test formulae, identities, and theorems verbatim as per ICSE
+- Follow ICSE board paper MCQ language and difficulty`;
 
-Example format (replace with real ${topic} content):
-{"mcq":[{"q":"What is the SI unit of force?","options":["A) Joule","B) Newton","C) Watt","D) Pascal"],"a":"B) Newton","explanation":"Force is measured in Newtons (N) as per ICSE, named after Isaac Newton."},{"q":"Q2 here?","options":["A) opt","B) opt","C) opt","D) opt"],"a":"A) opt","explanation":"reason"},{"q":"Q3?","options":["A) opt","B) opt","C) opt","D) opt"],"a":"C) opt","explanation":"reason"},{"q":"Q4?","options":["A) opt","B) opt","C) opt","D) opt"],"a":"D) opt","explanation":"reason"},{"q":"Q5?","options":["A) opt","B) opt","C) opt","D) opt"],"a":"B) opt","explanation":"reason"}],"fillinblanks":[{"q":"The SI unit of ________ is ________.","a":"force / Newton"},{"q":"________ (nationality, year) discovered ________.","a":"scientist / concept"},{"q":"The formula for ________ is ________.","a":"quantity / formula"},{"q":"________ and ________ are two types of ________.","a":"type1 / type2 / category"},{"q":"In ICSE, the experiment to verify ________ uses ________ as the main apparatus.","a":"law / apparatus"}]}
+  const humanityInstr = `For ICSE ${subject}:
+- MCQs must test specific dates, names, events, causes, effects — not vague facts
+- Fill blanks must test key terms, treaties, acts, articles, definitions exactly as per ICSE textbook
+- Questions must be specific to "${topic}" — not generic history questions`;
 
-Now write the actual questions about ${topic} for ICSE ${grade} ${subject}. Output JSON only.`;
+  const instr = type==='science' ? scienceInstr : type==='maths' ? mathsInstr : humanityInstr;
+
+  return `You are an ICSE ${grade} ${subject} examiner setting a board paper for topic: "${topic}"
+
+${instr}
+
+Write EXACTLY 5 MCQs and EXACTLY 5 fill-in-the-blank questions. Every question must be specific to "${topic}" in ICSE ${grade} ${subject}.
+
+Output ONLY a JSON object — no text before or after, no markdown:
+{"mcq":[
+{"q":"[Write complete, specific ICSE board-style MCQ about ${topic}]","options":["A) [option]","B) [option]","C) [option]","D) [option]"],"a":"[Correct option with letter]","explanation":"[ICSE-specific explanation]"},
+{"q":"[MCQ 2 — ${type==='science'||type==='maths'?'must involve a calculation or numerical':'specific fact about '+topic}]","options":["A) [opt]","B) [opt]","C) [opt]","D) [opt]"],"a":"[answer]","explanation":"[reason]"},
+{"q":"[MCQ 3]","options":["A) [opt]","B) [opt]","C) [opt]","D) [opt]"],"a":"[answer]","explanation":"[reason]"},
+{"q":"[MCQ 4]","options":["A) [opt]","B) [opt]","C) [opt]","D) [opt]"],"a":"[answer]","explanation":"[reason]"},
+{"q":"[MCQ 5]","options":["A) [opt]","B) [opt]","C) [opt]","D) [opt]"],"a":"[answer]","explanation":"[reason]"}
+],"fillinblanks":[
+{"q":"[Complete sentence about ${topic} with ________ blank]","a":"[answer]"},
+{"q":"[${type==='science'?'The SI unit of ________ is ________.':type==='humanity'?'The ________ was signed in the year ________.':'The formula for ________ is ________.'}]","a":"[answer]"},
+{"q":"[Sentence with blank testing key term from ${topic}]","a":"[answer]"},
+{"q":"[Sentence with two ________ blanks about ${topic}]","a":"[word1 / word2]"},
+{"q":"[${type==='science'?'________ (nationality, year) stated that ________.':type==='humanity'?'The ________ Act was passed in ________ to ________.':'In ICSE, ________ theorem states that ________.'}]","a":"[answer]"}
+]}
+Write the actual questions now — all about "${topic}" for ICSE ${grade} ${subject}. Output JSON only.`;
 }
 
 function buildQPromptB(grade, subject, topic) {
-  const isScience = ['Physics','Chemistry','Biology'].includes(subject);
-  return `You are an ICSE ${grade} ${subject} examiner. Write questions about: ${topic}
+  const type = subjectType(subject);
 
-TASK: Write exactly 5 true/false statements and exactly 3 odd-one-out questions based on ICSE ${grade} ${subject} syllabus.
-${isScience ? 'Test ICSE-specific facts about SI units, scientists, experiments.' : ''}
+  const humanityInstr = `For ICSE ${subject} — topic "${topic}":
+- True/False statements must test specific facts (dates, names, clauses, definitions) not vague statements
+- Odd One Out must use ICSE classification categories relevant to ${topic}`;
 
-Output ONLY a JSON object. Start with { and end with }. No other text before or after.
+  const scienceInstr = `For ICSE ${subject} — topic "${topic}":
+- True/False must test specific ICSE facts about SI units, laws, properties — not general science
+- Odd One Out should group by ICSE-defined categories (e.g. types of force, types of reactions)`;
 
-Example format (replace with real ${topic} content):
-{"truefalse":[{"q":"The SI unit of velocity is metre per second.","a":"True","explanation":"Velocity = displacement/time, SI unit is m/s as per ICSE."},{"q":"Mass and weight are the same quantity.","a":"False","explanation":"Mass is the amount of matter (kg); weight is gravitational force on mass (N)."},{"q":"T3 statement here.","a":"True","explanation":"reason"},{"q":"T4 statement here.","a":"False","explanation":"correction"},{"q":"T5 statement here.","a":"True","explanation":"reason"}],"oddonesout":[{"q":"Which is the odd one out? A) item1  B) item2  C) item3  D) item4","a":"B) item2","explanation":"item2 is the only one that does not belong because..."},{"q":"Which is the odd one out? A) x  B) y  C) z  D) w","a":"C) z","explanation":"reason"},{"q":"Which is the odd one out? A) p  B) q  C) r  D) s","a":"D) s","explanation":"reason"}]}
+  const instr = type==='humanity' ? humanityInstr : scienceInstr;
 
-Now write the actual questions about ${topic} for ICSE ${grade} ${subject}. Output JSON only.`;
+  return `You are an ICSE ${grade} ${subject} examiner setting a board paper for topic: "${topic}"
+
+${instr}
+
+Write EXACTLY 5 true/false statements and EXACTLY 3 odd-one-out questions. Every question must be specific to "${topic}" in ICSE ${grade} ${subject}.
+
+Output ONLY a JSON object — no text before or after, no markdown:
+{"truefalse":[
+{"q":"[True factual statement about ${topic} as per ICSE ${grade} syllabus]","a":"True","explanation":"[ICSE textbook reason]"},
+{"q":"[Common ICSE student misconception about ${topic} — actually false]","a":"False","explanation":"[Correct ICSE fact: ...]"},
+{"q":"[Another true statement testing ICSE-level knowledge of ${topic}]","a":"True","explanation":"[reason]"},
+{"q":"[Statement with a subtle error students commonly make in ${topic}]","a":"False","explanation":"[What is actually correct per ICSE: ...]"},
+{"q":"[True statement requiring deeper ICSE understanding of ${topic}]","a":"True","explanation":"[reason]"}
+],"oddonesout":[
+{"q":"Which is the odd one out and why? A) [item from ${topic}]  B) [item]  C) [item]  D) [item]","a":"[Letter) item]","explanation":"[It does not belong because... — based on ICSE classification]"},
+{"q":"Which is the odd one out? A) [item]  B) [item]  C) [item]  D) [item]","a":"[answer]","explanation":"[ICSE reason]"},
+{"q":"Which is the odd one out? A) [item]  B) [item]  C) [item]  D) [item]","a":"[answer]","explanation":"[reason]"}
+]}
+Write the actual questions now — all about "${topic}" for ICSE ${grade} ${subject}. Output JSON only.`;
 }
 
 function buildQPromptC(grade, subject, topic) {
-  const isScience = ['Physics','Chemistry','Biology'].includes(subject);
-  const isMaths   = subject === 'Mathematics';
-  return `You are an ICSE ${grade} ${subject} examiner. Write questions about: ${topic}
+  const type = subjectType(subject);
 
-TASK: Write exactly 3 assertion-reason questions, exactly 5 short-answer questions, and exactly 3 long-answer questions based on ICSE ${grade} ${subject} syllabus.
-${isScience ? 'Include: 1 experiment question, 1 numerical with given values and SI units, 1 table-based distinction question.' : ''}
-${isMaths   ? 'Include: numerical problems with step-by-step working required.' : ''}
+  const scienceShort = `Short answer ICSE Science pattern:
+Q1 (2 marks): Define [key term] and state its SI unit.
+Q2 (2 marks): State [law/principle] with its mathematical form.
+Q3 (2 marks): State the aim and one precaution of the ICSE experiment on ${topic}.
+Q4 (3 marks): Distinguish between [A] and [B] on three bases (tabular: "Basis | A | B --- Def | ... | ... --- Unit | ... | ... --- Example | ... | ...").
+Q5 (3 marks): Numerical — A [object] of [value with unit] has [another value]. Calculate [quantity]. Show full working.`;
 
-IMPORTANT for short and long answers: the "a" field must contain a complete model answer, not a placeholder.
-For tabular answers, write the table content as plain text like: "Basis | Concept A | Concept B --- Definition | def A | def B --- SI Unit | unit A | unit B"
-For numericals, write: "Given: ... Formula: ... Working: ... Answer: value + unit"
+  const scienceLong = `Long answer ICSE Science pattern:
+Q1 (5 marks): Describe the ICSE experiment to study ${topic}. Include: Aim / Apparatus / Procedure (5 steps) / Observation / Result / Two precautions.
+Q2 (6 marks): With a labelled diagram, explain [concept]. State relevant law. Derive the formula step-by-step. Solve: [numerical with values].
+Q3 (6 marks): A word problem: [real-world scenario involving ${topic}]. Given: [specific values with SI units]. Find [two quantities]. Show complete working for each.`;
 
-Output ONLY a JSON object. Start with { and end with }. No other text before or after.
+  const mathsShort = `Short answer ICSE Maths pattern (Section A style):
+Q1 (2 marks): Direct application — solve a specific numerical using the formula for ${topic}.
+Q2 (2 marks): A word problem — [real-world scenario], find [quantity].
+Q3 (3 marks): Multi-step problem requiring use of ${topic} concepts.
+Q4 (3 marks): Prove or verify [ICSE theorem related to ${topic}].
+Q5 (3 marks): A problem where student must identify the method, set up the equation, and solve.`;
 
-{"assertionreason":[{"assertion":"A true factual claim about ${topic} as per ICSE.","reason":"The correct scientific reason for that claim.","a":"Both Assertion and Reason are true, and Reason is the correct explanation","explanation":"Brief clarification of why R explains A"},{"assertion":"Another true claim about ${topic}.","reason":"A wrong reason that sounds plausible.","a":"Assertion is true but Reason is false","explanation":"The correct reason is: write it here"},{"assertion":"A third true ICSE claim about ${topic}.","reason":"A true statement that does not explain the assertion.","a":"Both Assertion and Reason are true, but Reason is NOT the correct explanation","explanation":"What actually explains the assertion"}],"shortanswer":[{"q":"Define [key ICSE term from ${topic}] and state its SI unit.","a":"Definition as per ICSE syllabus. SI unit: unit name (symbol).","marks":2},{"q":"State [law or principle from ${topic}] and write its mathematical expression.","a":"State the law exactly as in ICSE textbook. Mathematical form: write formula and define each symbol.","marks":2},{"q":"${isScience ? 'State the aim and one important precaution for the ICSE experiment on '+topic+'.' : 'State and briefly prove a key result in '+topic+'.'}","a":"${isScience ? 'Aim: write the complete aim. Precaution: write one specific precaution.' : 'State the result. Proof: step-by-step.'}","marks":2},{"q":"Distinguish between [concept A from ${topic}] and [concept B from ${topic}] on any three bases.","a":"Basis 1: A differs from B in ... | Basis 2: A has ... while B has ... | Basis 3: Example of A is ... while B is ...","marks":3},{"q":"${isScience ? 'A numerical problem: state specific values with SI units related to '+topic+' and ask student to calculate a specific quantity.' : 'Solve a step-by-step ICSE board problem on '+topic+'.'}","a":"Given: list values with units. Formula: write formula. Working: step 1 calculation, step 2 calculation. Answer: numerical value with correct SI unit.","marks":3}],"longanswer":[{"q":"${isScience ? 'Describe the ICSE experiment to study '+topic+'. Include aim, apparatus, procedure (5 steps), observation, result and two precautions.' : 'Explain '+topic+' in detail with proof, ICSE examples and board-level working.'}","a":"${isScience ? 'Aim: complete aim statement. Apparatus: list items. Procedure: 1. step one 2. step two 3. step three 4. step four 5. step five. Observation: write what is observed. Result: write conclusion. Precautions: 1. precaution one 2. precaution two.' : 'Introduction. Main concept explanation. Proof with mathematical steps. Three examples. Conclusion.'}","marks":5},{"q":"With the help of a labelled diagram, explain [main concept in ${topic}]. State the relevant law, derive the key formula showing each step, and solve one numerical.","a":"Diagram: describe each labelled part and its function. Law: state it exactly. Derivation: step 1 → step 2 → step 3 → final formula with SI unit. Numerical: Given values with units → Formula → Working → Answer with unit.","marks":6},{"q":"Compare [concept A] and [concept B] in ${topic} on five different bases in tabular form. Hence solve: write a specific numerical problem with given values.","a":"Table: Basis | Concept A | Concept B --- Definition | def A | def B --- Formula | formula A | formula B --- SI Unit | unit A | unit B --- Example | example A | example B --- Application | use A | use B. Numerical: Given → Formula → Working → Answer.","marks":6}]}
+  const mathsLong = `Long answer ICSE Maths pattern (Section B style):
+Q1 (4 marks): Multi-part word problem — (a) find [value] (b) find [another value] using ${topic}.
+Q2 (4 marks): Real-world application — [scenario involving ${topic}], show complete working.
+Q3 (6 marks): Complex problem requiring two different concepts from ${topic}, each with full working.`;
 
-Now write the actual questions about ${topic} for ICSE ${grade} ${subject}. Output JSON only.`;
-}
+  const humanityShort = `Short answer ICSE ${subject} pattern:
+Q1 (2 marks): Give the meaning / Define [key term from ${topic}].
+Q2 (2 marks): State any two causes / effects / features of [aspect of ${topic}].
+Q3 (2 marks): Mention the significance of [event/person/act] related to ${topic}.
+Q4 (3 marks): Distinguish between [A] and [B] related to ${topic} on any three points (tabular: "Basis | A | B --- Point1 | ... | ... --- Point2 | ... | ... --- Point3 | ... | ...").
+Q5 (3 marks): Give a short account of [specific event/concept] in ${topic}.`;
 
-// ── Bank prompt ───────────────────────────────────────────────────────────────
-function buildBankPrompt(grade, subject, topic) {
-  const isScience = ['Physics','Chemistry','Biology'].includes(subject);
-  return `ICSE ${grade} | ${subject} | Topic: ${topic}
+  const humanityLong = `Long answer ICSE ${subject} pattern:
+Q1 (5 marks): Explain in detail [main concept in ${topic}]. Include: definition, background, key features, significance, and one ICSE-style source-based analysis if applicable.
+Q2 (6 marks): "Examine the causes and consequences of [event in ${topic}]." Write a structured essay-style answer with introduction, causes (3 points), consequences (3 points), conclusion.
+Q3 (6 marks): Compare and contrast [two related concepts in ${topic}] using a table (5 points), followed by a paragraph explaining which was more significant and why.`;
 
-Generate 18 ICSE board-exam quality questions about "${topic}" strictly as per ICSE ${grade} ${subject} syllabus.
-${isScience ? 'Include questions on: SI units, scientist names, ICSE practicals, derivations, and numericals.' : ''}
-Use ICSE board exam language and marking scheme exactly.
+  const arInstr = type==='humanity'
+    ? `Assertion-Reason for ICSE ${subject}: test understanding of cause-effect, significance, or classification within ${topic}.`
+    : `Assertion-Reason for ICSE ${subject}: test understanding of laws, principles, or properties in ${topic}.`;
 
-Return ONLY this JSON — replace all placeholders with real ICSE ${grade} content about "${topic}":
-{"subject":"${subject}","topic":"${topic}","grade":"${grade}","questions":[
-{"type":"MCQ","difficulty":"easy","question":"ICSE-standard MCQ with A) B) C) D) options","answer":"Correct option","marks":1},
-{"type":"MCQ","difficulty":"medium","question":"MCQ requiring ICSE-level understanding, with A) B) C) D)","answer":"Correct option with brief reason","marks":1},
-{"type":"Fill in the Blank","difficulty":"easy","question":"The SI unit of ___ is ___.","answer":"quantity / unit","marks":1},
-{"type":"Fill in the Blank","difficulty":"medium","question":"___ stated the law of ___ in the year ___.","answer":"scientist / law / year","marks":1},
-{"type":"True or False","difficulty":"easy","question":"A specific ICSE fact about ${topic}","answer":"True","marks":1},
-{"type":"True or False","difficulty":"medium","question":"A common ICSE misconception about ${topic}","answer":"False — correct ICSE fact is: ...","marks":1},
-{"type":"Odd One Out","difficulty":"medium","question":"A) item B) item C) item D) item","answer":"X) item — reason based on ICSE classification","marks":1},
-{"type":"Odd One Out","difficulty":"medium","question":"A) item B) item C) item D) item","answer":"X) item — reason","marks":1},
-{"type":"Assertion-Reason","difficulty":"medium","question":"Assertion: ICSE fact. Reason: correct reason.","answer":"Both true, Reason is correct explanation","marks":2},
-{"type":"Assertion-Reason","difficulty":"hard","question":"Assertion: ICSE fact. Reason: incorrect reason.","answer":"Assertion true, Reason false — correct reason is: ...","marks":2},
-{"type":"Short Answer","difficulty":"easy","question":"Define [term] as per ICSE. State its SI unit.","answer":"ICSE definition. SI unit: ...","marks":1},
-{"type":"Short Answer","difficulty":"medium","question":"State [ICSE law/principle] and write its mathematical form.","answer":"Law statement. Formula: ... where symbols mean ...","marks":2},
-{"type":"Short Answer","difficulty":"medium","question":"Distinguish between [A] and [B] in tabular form. (2 points)","answer":"Table: Basis | A | B — row1 — row2","marks":2},
-{"type":"Short Answer","difficulty":"medium","question":"${isScience ? 'State the aim and one precaution of the ICSE experiment on '+topic+'.' : 'State and briefly prove: key result in '+topic+'.'}","answer":"${isScience ? 'Aim: ... Precaution: ...' : 'Statement. Proof steps.'}","marks":2},
-{"type":"Short Answer","difficulty":"hard","question":"${isScience ? 'A numerical problem on '+topic+' with given values and SI units.' : 'ICSE board numerical on '+topic+'.'}","answer":"Given: ... Formula: ... Working: ... Answer: value + SI unit","marks":3},
-{"type":"Long Answer","difficulty":"hard","question":"${isScience ? 'Describe the ICSE experiment to study '+topic+'. Include aim, apparatus, procedure, observation and conclusion.' : 'Explain '+topic+' fully with proof and ICSE examples.'}","answer":"Full ICSE model answer with all parts.","marks":5},
-{"type":"Long Answer","difficulty":"hard","question":"With a neat labelled diagram, explain [main concept in ${topic}]. State relevant laws and derive the main formula.","answer":"Diagram (described with labels). Laws. Derivation step by step. Final formula with SI unit.","marks":5},
-{"type":"Long Answer","difficulty":"hard","question":"Compare [concept A] and [concept B] in ${topic} using a table (5 points). Solve a numerical: [problem statement with values].","answer":"5-row comparison table. Numerical: Given → Formula → Working → Answer.","marks":6}
+  const shortInstr = type==='maths' ? mathsShort : type==='science' ? scienceShort : humanityShort;
+  const longInstr  = type==='maths' ? mathsLong  : type==='science' ? scienceLong  : humanityLong;
+
+  return `You are an ICSE ${grade} ${subject} examiner setting a board paper for topic: "${topic}"
+
+${arInstr}
+
+${shortInstr}
+
+${longInstr}
+
+Write EXACTLY 3 assertion-reason, EXACTLY 5 short-answer, and EXACTLY 3 long-answer questions.
+Every question must be specific to "${topic}" in ICSE ${grade} ${subject}.
+
+For tabular answers write: "Basis | Column A | Column B --- Row1 | val | val --- Row2 | val | val"
+For numericals write full working: "Given: ... Formula: ... Step 1: ... Step 2: ... Answer: value + unit"
+For experiments: "Aim: ... Apparatus: ... Procedure: 1. ... 2. ... 3. ... Observation: ... Result: ..."
+
+Output ONLY a JSON object — no text before or after, no markdown:
+{"assertionreason":[
+{"assertion":"[Specific true ICSE claim about ${topic}]","reason":"[Correct reason]","a":"Both Assertion and Reason are true, and Reason is the correct explanation","explanation":"[Why R explains A]"},
+{"assertion":"[True ICSE claim about ${topic}]","reason":"[Plausible but incorrect reason]","a":"Assertion is true but Reason is false","explanation":"[Correct reason: ...]"},
+{"assertion":"[True ICSE claim about ${topic}]","reason":"[True but unrelated reason]","a":"Both Assertion and Reason are true, but Reason is NOT the correct explanation","explanation":"[What actually explains A]"}
+],"shortanswer":[
+{"q":"[Short answer Q1 as per ICSE pattern above]","a":"[Complete model answer]","marks":2},
+{"q":"[Short answer Q2]","a":"[Complete model answer]","marks":2},
+{"q":"[Short answer Q3 — experiment/proof/significance]","a":"[Complete model answer]","marks":2},
+{"q":"[Short answer Q4 — distinguish/compare in tabular form]","a":"[Table: Basis | A | B --- row1 --- row2 --- row3]","marks":3},
+{"q":"[Short answer Q5 — ${type==='maths'||type==='science'?'numerical word problem with given values':'give a short account or explanation'}]","a":"[${type==='maths'||type==='science'?'Given: ... Formula: ... Working: ... Answer: value + unit':'Complete answer']"}","marks":3}
+],"longanswer":[
+{"q":"[Long answer Q1 as per ICSE pattern above]","a":"[Complete detailed model answer]","marks":5},
+{"q":"[Long answer Q2 — ${type==='maths'||type==='science'?'multi-step word problem or experiment':'examine causes and effects or structured essay'}]","a":"[Complete model answer with all steps/parts]","marks":6},
+{"q":"[Long answer Q3 — ${type==='maths'||type==='science'?'real-world word problem requiring critical thinking':'compare and contrast with table plus paragraph'}]","a":"[Complete model answer]","marks":6}
 ]}
-Replace ALL content with specific real ICSE ${grade} ${subject} content about "${topic}". Return ONLY JSON.`;
+Write the actual questions now — all specific to "${topic}" for ICSE ${grade} ${subject}. Output JSON only.`;
 }
 
-// ── Generate all 7 question types ─────────────────────────────────────────────
+// ── BANK PROMPT ───────────────────────────────────────────────────────────────
+function buildBankPrompt(grade, subject, topic) {
+  const type = subjectType(subject);
+
+  const scienceNote = `Include: 2 numericals, 1 derivation question, 1 experiment question, questions on SI units and scientist names.`;
+  const mathsNote   = `Include: at least 5 word problems requiring full working, 2 proof questions, questions with multiple steps.`;
+  const humanityNote = `Include: 2 source-based questions, date/event questions, cause-effect questions, significance questions, comparison questions. NO vague generic questions.`;
+
+  const subjectNote = type==='science' ? scienceNote : type==='maths' ? mathsNote : humanityNote;
+
+  return `You are an ICSE ${grade} ${subject} board examiner. Topic: "${topic}"
+${subjectNote}
+
+Generate 20 board-exam quality questions strictly based on ICSE ${grade} ${subject} syllabus for "${topic}".
+Mix all question types. Questions must be specific, meaningful, and exam-worthy.
+
+Output ONLY valid JSON — no markdown:
+{"subject":"${subject}","topic":"${topic}","grade":"${grade}","questions":[
+{"type":"MCQ","difficulty":"easy","question":"[Specific MCQ with A) B) C) D) options]","answer":"[Correct option]","marks":1},
+{"type":"MCQ","difficulty":"medium","question":"[${type==='science'||type==='maths'?'Calculation-based MCQ':'Specific knowledge MCQ'}]","answer":"[answer]","marks":1},
+{"type":"Fill in the Blank","difficulty":"easy","question":"[Sentence with ___ blank]","answer":"[word]","marks":1},
+{"type":"Fill in the Blank","difficulty":"medium","question":"[Sentence with ___ and ___ blanks]","answer":"[word1 / word2]","marks":1},
+{"type":"True or False","difficulty":"easy","question":"[Specific factual statement]","answer":"True","marks":1},
+{"type":"True or False","difficulty":"medium","question":"[Subtle misconception statement]","answer":"False — correct answer: [what is correct]","marks":1},
+{"type":"Odd One Out","difficulty":"medium","question":"A) [item]  B) [item]  C) [item]  D) [item]","answer":"[Letter) item — reason]","marks":1},
+{"type":"Odd One Out","difficulty":"medium","question":"A) [item]  B) [item]  C) [item]  D) [item]","answer":"[answer]","marks":1},
+{"type":"Assertion-Reason","difficulty":"medium","question":"Assertion: [claim]. Reason: [correct reason].","answer":"Both true, Reason explains Assertion","marks":2},
+{"type":"Assertion-Reason","difficulty":"hard","question":"Assertion: [claim]. Reason: [wrong reason].","answer":"Assertion true, Reason false","marks":2},
+{"type":"Short Answer","difficulty":"easy","question":"Define [key term] and state its ${type==='science'?'SI unit':'significance'}.","answer":"[Complete answer]","marks":2},
+{"type":"Short Answer","difficulty":"medium","question":"${type==='humanity'?'State two causes of [event in '+topic+'].':'State [law] and write its mathematical expression.'}","answer":"[Complete answer]","marks":2},
+{"type":"Short Answer","difficulty":"medium","question":"Distinguish between [A] and [B] in ${topic} on two bases.","answer":"Basis | A | B --- Point 1 | ... | ... --- Point 2 | ... | ...","marks":2},
+{"type":"Short Answer","difficulty":"medium","question":"${type==='humanity'?'What was the significance of [event/person/act] in '+topic+'?':'In the ICSE experiment on '+topic+', state the aim and one precaution.'}","answer":"[Complete answer]","marks":2},
+{"type":"Short Answer","difficulty":"hard","question":"${type==='maths'||type==='science'?'Numerical: [scenario with specific values and SI units]. Calculate [quantity].':'Give a short account of [specific concept in '+topic+'].'}","answer":"${type==='maths'||type==='science'?'Given: ... Formula: ... Working: ... Answer: value + unit':'Complete answer'}","marks":3},
+{"type":"Long Answer","difficulty":"hard","question":"${type==='humanity'?'Examine the causes and consequences of [event in '+topic+'].':'Describe the ICSE experiment to '+topic+'. Include aim, apparatus, procedure, observation and result.'}","answer":"[Full model answer]","marks":5},
+{"type":"Long Answer","difficulty":"hard","question":"${type==='maths'||type==='science'?'Word problem: [real-world scenario involving '+topic+' with given values]. Find [two quantities]. Show complete working.':'Compare [concept A] and [concept B] in '+topic+' using a table with 5 points.'}","answer":"[Full model answer]","marks":5},
+{"type":"Long Answer","difficulty":"hard","question":"${type==='humanity'?'Write a structured essay on [main theme of '+topic+']. Include: introduction, three main points with examples, and a conclusion.':'With a labelled diagram, explain [main mechanism in '+topic+']. Derive the key formula and solve one numerical.'}","answer":"[Full model answer]","marks":6},
+{"type":"Long Answer","difficulty":"hard","question":"[A critical thinking or application question specific to ${topic} at ICSE ${grade} level]","answer":"[Complete model answer]","marks":6}
+]}
+Replace ALL placeholders with real specific content about "${topic}". Output JSON only.`;
+}
+
+// ── PAST PAPER ANALYSIS ───────────────────────────────────────────────────────
+async function analyzePastPaper(fileBuffer, mimeType, grade, subject) {
+  const base64 = fileBuffer.toString('base64');
+
+  const prompt = `You have been given a scanned ICSE ${grade} ${subject} past question paper.
+
+Analyse the paper carefully and:
+1. Extract every question with its marks allocation
+2. Identify the question types present (MCQ, Short Answer, Long Answer, etc.)
+3. Identify the topics covered
+4. Note the difficulty pattern and marking scheme
+
+Then generate 15 NEW questions that are closely modelled on the style, difficulty, topic mix, and language of this paper — but are entirely new questions (not copies).
+
+Output ONLY valid JSON:
+{
+  "paperAnalysis": {
+    "totalMarks": number,
+    "sections": ["Section A: ...", "Section B: ..."],
+    "topicsCovered": ["topic1", "topic2"],
+    "questionTypes": ["MCQ", "Short Answer", "Long Answer"],
+    "difficultyObservation": "description of difficulty pattern"
+  },
+  "extractedQuestions": [
+    {"type": "type", "question": "exact question text", "marks": number, "topic": "topic name"}
+  ],
+  "generatedQuestions": [
+    {"type": "type", "difficulty": "easy/medium/hard", "question": "new question modelled on paper style", "answer": "complete model answer", "marks": number, "topic": "topic"}
+  ]
+}`;
+
+  // Use vision-capable model for image/PDF analysis
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: [
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
+          { type: 'text', text: prompt }
+        ]}
+      ],
+      max_tokens: 4000,
+      temperature: 0.3
+    })
+  });
+
+  if (!res.ok) {
+    // Fallback: just generate questions if vision fails
+    const fallback = await callGroq(
+      `You are an ICSE ${grade} ${subject} examiner. Generate 15 high-quality board-exam questions mixing all types (MCQ, Fill Blank, Short Answer, Long Answer). Output JSON: {"paperAnalysis":{"totalMarks":100,"sections":["N/A - generated"],"topicsCovered":["${subject} general"],"questionTypes":["MCQ","Short Answer","Long Answer"],"difficultyObservation":"Mixed difficulty"},"extractedQuestions":[],"generatedQuestions":[{"type":"Short Answer","difficulty":"medium","question":"question here","answer":"answer here","marks":2,"topic":"general"}]}`,
+      3000
+    );
+    return safeJSON(fallback, { paperAnalysis:{}, extractedQuestions:[], generatedQuestions:[] });
+  }
+
+  const data = await res.json();
+  return safeJSON(data.choices[0].message.content, { paperAnalysis:{}, extractedQuestions:[], generatedQuestions:[] });
+}
+
+// ── Generate questions ────────────────────────────────────────────────────────
 async function generateQuestions(grade, subject, topic) {
   const [rawA, rawB, rawC] = await Promise.all([
-    callGroq(buildQPromptA(grade, subject, topic), 1800),
-    callGroq(buildQPromptB(grade, subject, topic), 1400),
-    callGroq(buildQPromptC(grade, subject, topic), 2800)
+    callGroq(buildQPromptA(grade, subject, topic), 2000),
+    callGroq(buildQPromptB(grade, subject, topic), 1600),
+    callGroq(buildQPromptC(grade, subject, topic), 3000)
   ]);
 
   const questions = { mcq:[], fillinblanks:[], truefalse:[], oddonesout:[], assertionreason:[], shortanswer:[], longanswer:[] };
@@ -390,12 +496,11 @@ async function generateQuestions(grade, subject, topic) {
   const pB = safeJSON(rawB, null);
   const pC = safeJSON(rawC, null);
 
-  if (pA) { Object.assign(questions, pA); } else { console.error('PromptA parse FAILED. Raw:', rawA.slice(0,400)); }
-  if (pB) { Object.assign(questions, pB); } else { console.error('PromptB parse FAILED. Raw:', rawB.slice(0,400)); }
-  if (pC) { Object.assign(questions, pC); } else { console.error('PromptC parse FAILED. Raw:', rawC.slice(0,400)); }
+  if (pA) Object.assign(questions, pA); else console.error('PromptA FAILED. Raw:', rawA.slice(0,400));
+  if (pB) Object.assign(questions, pB); else console.error('PromptB FAILED. Raw:', rawB.slice(0,400));
+  if (pC) Object.assign(questions, pC); else console.error('PromptC FAILED. Raw:', rawC.slice(0,400));
 
-  console.log(`Questions generated — mcq:${questions.mcq.length} fib:${questions.fillinblanks.length} tf:${questions.truefalse.length} ooo:${questions.oddonesout.length} ar:${questions.assertionreason.length} sa:${questions.shortanswer.length} la:${questions.longanswer.length}`);
-
+  console.log(`Questions: mcq:${questions.mcq.length} fib:${questions.fillinblanks.length} tf:${questions.truefalse.length} ooo:${questions.oddonesout.length} ar:${questions.assertionreason.length} sa:${questions.shortanswer.length} la:${questions.longanswer.length}`);
   return questions;
 }
 
@@ -407,24 +512,17 @@ app.post('/api/generate-all', upload.array('files', 10), async (req, res) => {
     const hasFiles = files.length > 0;
     if (!topic && !hasFiles) return res.status(400).json({ error: 'Enter a topic or upload files.' });
 
-    const g = grade   || 'Grade 8';
-    const s = subject || '';
-    const t = topic   || '';
-
+    const g = grade || 'Grade 8', s = subject || '', t = topic || '';
     const [notesRaw, questions, bankRaw] = await Promise.all([
       callGroq(buildNotesPrompt(g, s, t), 6000),
       generateQuestions(g, s, t),
-      callGroq(buildBankPrompt(g, s, t), 3500)
+      callGroq(buildBankPrompt(g, s, t), 4000)
     ]);
 
-    const notes = notesRaw.replace(/```html|```/g, '').trim();
-    const bank  = safeJSON(bankRaw, { questions: [] });
-
-    res.json({ success: true, notes, questions, bank, fromTopic: !hasFiles });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
+    const notes = notesRaw.replace(/```html|```/g,'').trim();
+    const bank  = safeJSON(bankRaw, { questions:[] });
+    res.json({ success:true, notes, questions, bank, fromTopic:!hasFiles });
+  } catch(err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
 // ── /api/questions-only ───────────────────────────────────────────────────────
@@ -432,32 +530,35 @@ app.post('/api/questions-only', async (req, res) => {
   try {
     const { subject, topic, grade } = req.body;
     if (!topic) return res.status(400).json({ error: 'Topic is required.' });
-    const questions = await generateQuestions(grade || 'Grade 8', subject || '', topic);
-    res.json({ success: true, questions });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
+    const questions = await generateQuestions(grade||'Grade 8', subject||'', topic);
+    res.json({ success:true, questions });
+  } catch(err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
+// ── /api/analyze-paper (past paper upload) ────────────────────────────────────
+app.post('/api/analyze-paper', upload.single('paper'), async (req, res) => {
+  try {
+    const { grade, subject } = req.body;
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'Please upload a past paper.' });
+
+    const result = await analyzePastPaper(file.buffer, file.mimetype, grade||'Grade 8', subject||'');
+    res.json({ success:true, ...result });
+  } catch(err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
 // ── /api/ask ──────────────────────────────────────────────────────────────────
 app.post('/api/ask', async (req, res) => {
   try {
     const { question, context, grade, subject } = req.body;
-    const prompt = `You are a friendly ICSE ${grade || 'Grade 8'} ${subject || ''} tutor. Answer using ICSE syllabus terminology and examples.
-${context ? 'Context from notes: ' + context.slice(0, 800) + '\n' : ''}
+    const prompt = `You are a friendly ICSE ${grade||'Grade 8'} ${subject||''} tutor. Answer using ICSE syllabus terminology.
+${context ? 'Notes context: '+context.slice(0,800)+'\n' : ''}
 Student question: ${question}
-Give a clear, encouraging answer with ICSE-relevant examples and, where applicable, SI units or formulas.`;
+Give a clear answer with ICSE-relevant examples, SI units where applicable, and step-by-step working for numericals.`;
     const answer = await callGroq(prompt, 1024);
-    res.json({ success: true, answer });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
+    res.json({ success:true, answer });
+  } catch(err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/health', (_, res) => res.json({ status: 'ok', powered_by: 'Groq LLaMA — ICSE curriculum' }));
-
-app.listen(PORT, () => {
-  console.log(`\n🎓 StudyBot (ICSE) running at http://localhost:${PORT}\n`);
-});
+app.get('/api/health', (_, res) => res.json({ status:'ok', powered_by:'Groq LLaMA — ICSE aligned' }));
+app.listen(PORT, () => console.log(`\n🎓 StudyBot ICSE running at http://localhost:${PORT}\n`));
