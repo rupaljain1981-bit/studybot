@@ -3,7 +3,6 @@ const express = require('express');
 const multer  = require('multer');
 const cors    = require('cors');
 const path    = require('path');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -39,73 +38,95 @@ function subjectType(s) {
   return 'general';
 }
 
-// ── Gemini vision client (for reading uploaded images/PDFs) ───────────────────
-const geminiClient = process.env.GEMINI_API_KEY
-  ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-  : null;
+// ── Gemini vision (direct API — no SDK, works in all regions) ────────────────
+// Uses gemini-2.0-flash which is free, fast, and supports multimodal vision
+const GEMINI_VISION_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
-// Extract text from uploaded files using Gemini vision
-// Handles multiple pages photographed from a handheld camera in one consolidated pass
-async function callGeminiWithRetry(model, parts, maxAttempts = 3) {
+// ── Gemini vision via direct fetch (no SDK — works in all regions) ────────────
+async function callGeminiVision(parts, maxAttempts = 3) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return null;
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const result = await model.generateContent(parts);
-      return result.response.text();
-    } catch(err) {
-      const msg = err.message || '';
-      const isLimit = msg.includes('429') || msg.includes('quota') || msg.includes('RATE') || msg.includes('exhausted');
-      if (isLimit && attempt < maxAttempts) {
-        const wait = 3000 * attempt; // 3s, 6s
-        console.log(`Gemini rate limit — retrying in ${wait}ms (attempt ${attempt+1}/${maxAttempts})`);
-        await sleep(wait);
-        continue;
+      const res = await fetch(GEMINI_VISION_URL + '?key=' + key, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: { maxOutputTokens: 8192, temperature: 0.1 }
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = data.error?.message || ('HTTP ' + res.status);
+        if ((res.status === 429 || msg.includes('quota') || msg.includes('RATE')) && attempt < maxAttempts) {
+          const wait = 3000 * attempt;
+          console.log('Gemini rate limit — retrying in ' + wait + 'ms (attempt ' + (attempt+1) + '/' + maxAttempts + ')');
+          await sleep(wait);
+          continue;
+        }
+        throw new Error('Gemini error: ' + msg);
       }
-      throw err;
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      if (!text) throw new Error('Gemini returned empty response');
+      return text;
+    } catch(err) {
+      if (attempt === maxAttempts) throw err;
+      if (err.message.includes('rate') || err.message.includes('429')) {
+        await sleep(3000 * attempt);
+      } else {
+        throw err;
+      }
     }
   }
 }
 
+// Extract and consolidate text from multiple uploaded pages (camera photos or PDFs)
 async function extractTextFromFiles(files, grade, subject, topic) {
   if (!files || files.length === 0) return null;
 
-  if (!geminiClient) {
+  if (!process.env.GEMINI_API_KEY) {
     console.warn('GEMINI_API_KEY not set — cannot read uploaded images. Falling back to topic-only mode.');
     return null;
   }
 
   try {
-    const model = geminiClient.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const pageCount = files.length;
 
-    // Build all image/PDF parts — handle multiple pages from a camera
+    // Build parts array: all images first, then the instruction text
     const imageParts = files.map(file => ({
-      inlineData: {
-        mimeType: file.mimetype === 'application/pdf' ? 'application/pdf' : file.mimetype,
+      inline_data: {
+        mime_type: file.mimetype === 'application/pdf' ? 'application/pdf' : file.mimetype,
         data: file.buffer.toString('base64')
       }
     }));
 
-    const pageCount = files.length;
-    const prompt = `You are reading ${pageCount} page${pageCount > 1 ? 's' : ''} from an ICSE ${grade} ${subject} textbook.
-${topic ? `The topic is: "${topic}"` : ''}
+    const textPart = {
+      text: `You are reading ${pageCount} page${pageCount > 1 ? 's' : ''} from an ICSE ${grade} ${subject} textbook.
+${topic ? 'Topic: "' + topic + '"' : ''}
 
-These pages may have been photographed with a handheld camera and could be slightly blurry, angled, or partially overlapping. Do your best to read all visible text accurately.
+These pages may be photographed with a handheld camera — they could be slightly blurry, angled, or partially overlapping. Read everything as accurately as possible.
 
-Your task:
-1. Read ALL text from ALL ${pageCount} page${pageCount > 1 ? 's' : ''} carefully
-2. Preserve all headings, subheadings, definitions, formulas, diagrams descriptions, tables, and numbered lists
-3. If pages overlap or repeat content, include it only once
-4. Transcribe mathematical formulas and equations accurately using text notation (e.g. F = ma, E = mc²)
-5. Note diagram labels and descriptions (e.g. "Diagram: Parts of a cell — 1. Cell membrane 2. Nucleus...")
-6. Maintain the logical flow and structure of the original content
+TASK: Transcribe ALL visible text from ALL ${pageCount} page${pageCount > 1 ? 's' : ''} into one clean document. Include:
+- All headings, subheadings, and paragraph text
+- All definitions (exact wording)
+- All formulas and equations (use text notation: F = ma, E = mc^2)
+- All numbered lists and bullet points
+- All table content (preserve rows and columns)
+- All diagram labels (write as: "Diagram: [name] — Label 1: [part name], Label 2: [part name]...")
+- All examples and solved problems
 
-Provide a clean, consolidated transcription of ALL the textbook content across all pages. Start directly with the content — no preamble.`;
+If pages overlap, include the content only once.
+Start directly with the transcribed content — no introduction or preamble.`
+    };
 
-    const extracted = await callGeminiWithRetry(model, [...imageParts, { text: prompt }]);
-    console.log(`Gemini extracted ${extracted.length} chars from ${pageCount} file(s)`);
+    const extracted = await callGeminiVision([...imageParts, textPart]);
+    console.log('Gemini extracted', extracted.length, 'chars from', pageCount, 'file(s)');
     return extracted;
   } catch(err) {
     console.error('Gemini vision error:', err.message);
-    return null; // Fall back to topic-only if vision fails
+    return null;
   }
 }
 
@@ -565,34 +586,42 @@ function buildBankPrompt(grade, subject, topic) {
 
 // ── PAST PAPER ANALYSIS ───────────────────────────────────────────────────────
 async function analyzePastPaper(fileBuffer, mimeType, grade, subject) {
-  // Step 0: Use Gemini to transcribe the paper if possible
+  // Step 0: Use Gemini vision (direct fetch) to transcribe the paper
   let transcription = null;
-  if (geminiClient) {
+  if (process.env.GEMINI_API_KEY) {
     try {
-      const model = geminiClient.getGenerativeModel({ model: 'gemini-1.5-flash' });
-            transcription = await callGeminiWithRetry(model, [
+      const parts = [
         {
-          inlineData: {
-            mimeType: mimeType === 'application/pdf' ? 'application/pdf' : mimeType,
+          inline_data: {
+            mime_type: mimeType === 'application/pdf' ? 'application/pdf' : mimeType,
             data: fileBuffer.toString('base64')
           }
         },
-        { text: `This is an ICSE ${grade} ${subject} past question paper. Transcribe EVERY question exactly as written, including:\n- Question numbers and sub-parts (e.g. Q1(a), Q1(b))\n- All marks allocations in brackets\n- Full question text including any data, diagrams described, or formulae\n- All options for MCQs\n- Any instructions at the start of sections\n\nTranscribe completely and accurately. Include all sections.` }
-      ]);      console.log(`Gemini transcribed past paper: ${transcription.length} chars`);
+        {
+          text: `This is an ICSE ${grade} ${subject} past question paper.
+Transcribe EVERY question EXACTLY as printed. Include:
+- Section headings and their instructions
+- Every question number and sub-part label (Q1, Q1(a), Q1(b), etc.)
+- Marks in brackets e.g. [2] or (2 marks)
+- Complete question text — every word, every value, every unit
+- All MCQ options (A, B, C, D)
+- Any data tables or given values
+
+Format exactly like the original paper. Do NOT answer anything — only transcribe.`
+        }
+      ];
+      transcription = await callGeminiVision(parts);
+      console.log('Gemini transcribed paper:', transcription ? transcription.length : 0, 'chars');
     } catch(err) {
       console.log('Gemini paper transcription failed:', err.message, '— using curriculum-based generation');
     }
+  } else {
+    console.warn('No GEMINI_API_KEY — cannot read paper image, generating curriculum-based questions');
   }
 
   const paperContext = transcription
-    ? `Here is the EXACT transcription of the uploaded past paper:
-
-${transcription}
-
-`
-    : `Generate a typical ICSE ${grade} ${subject} board paper with realistic questions.
-
-`;
+    ? `Here is the EXACT transcription of the uploaded past paper:\n\n${transcription}\n\n`
+    : `Generate a typical ICSE ${grade} ${subject} board paper with realistic questions.\n\n`;
 
   const extractPrompt = `You are an ICSE ${grade} ${subject} examiner and model answer writer.
 
@@ -879,13 +908,18 @@ Make everything specific to "${topic}" in ICSE ${grade} ${subject}. Output JSON 
   } catch(err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/health', (_, res) => res.json({ status:'ok', powered_by:'Groq LLaMA — ICSE aligned' }));
+app.get('/api/health', (_, res) => res.json({ status:'ok', powered_by:'Groq LLaMA + Gemini Vision — ICSE aligned' }));
 app.listen(PORT, () => {
   console.log(`\n🎓 StudyBot ICSE running at http://localhost:${PORT}`);
-  if (geminiClient) {
-    console.log('✅ Gemini vision ready (gemini-1.5-flash) — document upload will work');
+  if (process.env.GEMINI_API_KEY) {
+    console.log('✅ Gemini vision ready (gemini-2.0-flash via direct API) — document upload will work');
   } else {
     console.log('⚠️  GEMINI_API_KEY not set — document upload will use topic-only fallback');
+  }
+  if (process.env.GROQ_API_KEY) {
+    console.log('✅ Groq API ready — text generation active');
+  } else {
+    console.log('❌ GROQ_API_KEY not set — app will not work!');
   }
   console.log('');
 });
