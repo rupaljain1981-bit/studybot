@@ -86,6 +86,34 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
 .notes-content pre{font-size:13px;background:var(--navy);color:var(--sky-light);padding:1rem;border-radius:8px;overflow-x:auto;white-space:pre-wrap}
 .notes-toolbar{display:flex;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap}
 
+/* ── Concept map ── */
+.concept-map{display:flex;flex-direction:column;align-items:center;gap:1rem;padding:1rem 0}
+.cm-center{background:var(--navy);color:var(--amber);font-family:'Fraunces',serif;font-size:1rem;font-weight:600;padding:12px 28px;border-radius:30px;text-align:center;box-shadow:0 2px 12px rgba(15,27,45,.2)}
+.cm-branches{display:flex;flex-wrap:wrap;gap:1rem;justify-content:center;width:100%;position:relative}
+.cm-branches::before{content:'';position:absolute;top:-16px;left:50%;width:2px;height:16px;background:var(--border)}
+.cm-branch{display:flex;flex-direction:column;align-items:center;gap:8px;min-width:140px}
+.cm-node{padding:8px 18px;border-radius:20px;font-weight:600;font-size:13px;text-align:center;position:relative}
+.cm-node::before{content:'';position:absolute;top:-16px;left:50%;width:2px;height:16px;background:var(--border)}
+.cm-blue{background:#e6f1fb;color:#0c447c;border:1.5px solid #85b7eb}
+.cm-green{background:#eaf3de;color:#27500a;border:1.5px solid #97c459}
+.cm-amber{background:var(--amber-pale);color:#633806;border:1.5px solid var(--amber)}
+.cm-coral{background:#faece7;color:#4a1b0c;border:1.5px solid #f0997b}
+.cm-mint{background:#e1f5ee;color:#04342c;border:1.5px solid #5dcaa5}
+.cm-purple{background:#eeedfe;color:#26215c;border:1.5px solid #afa9ec}
+.cm-children{display:flex;flex-direction:column;gap:5px;align-items:center}
+.cm-child{background:var(--white);border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:12px;color:var(--text-dark);text-align:center;position:relative}
+.cm-child::before{content:'';position:absolute;top:-10px;left:50%;width:1px;height:10px;background:var(--border)}
+
+/* ── Formula boxes ── */
+.formula-box{background:var(--white);border:2px solid var(--sky);border-radius:12px;padding:12px 16px;margin:8px 0;display:flex;align-items:center;gap:16px}
+.formula-title{font-size:12px;font-weight:600;color:var(--sky);text-transform:uppercase;letter-spacing:.05em;min-width:100px}
+.formula-eq{font-size:16px;font-weight:600;color:var(--navy);font-family:monospace;background:#f0f7ff;padding:6px 14px;border-radius:8px}
+
+/* ── Mnemonic boxes ── */
+.mnemonic-box{display:inline-flex;align-items:center;gap:10px;background:var(--amber-pale);border:1.5px solid var(--amber);border-radius:10px;padding:8px 14px;margin:4px 6px}
+.mnemonic-letter{width:32px;height:32px;background:var(--amber);color:var(--navy);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0}
+.mnemonic-word{font-size:13px;color:var(--text-dark);font-weight:500}
+
 .q-options{display:flex;flex-direction:column;gap:5px;margin-top:8px}
 .q-option{font-size:13px;padding:6px 10px;background:var(--white);border-radius:6px;border:1px solid var(--border)}
 .blank{display:inline-block;min-width:80px;border-bottom:2px solid var(--navy);margin:0 4px;color:transparent;background:var(--off-white);border-radius:2px}
