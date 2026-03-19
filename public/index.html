@@ -174,6 +174,9 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
 .diff-btn{padding:6px 13px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;border:1.5px solid var(--border);background:transparent;color:var(--text-muted);transition:all .2s}
 .diff-btn.active{background:var(--navy);border-color:var(--navy);color:var(--amber)}
 .questions-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;flex-wrap:wrap;gap:.75rem}
+.q-section-header{font-family:'Fraunces',serif;font-size:1rem;font-weight:600;color:var(--navy);margin:1.5rem 0 .75rem;padding:8px 14px;background:var(--navy);color:var(--amber);border-radius:8px;display:flex;align-items:center;justify-content:space-between}
+.q-count{background:rgba(255,255,255,.15);padding:2px 8px;border-radius:10px;font-size:12px;font-weight:500}
+.q-section-header:first-child{margin-top:0}
 .q-card{background:var(--off-white);border-radius:12px;padding:1.1rem;margin-bottom:.9rem;border:1px solid var(--border);cursor:pointer;transition:all .2s}
 .q-card:hover{border-color:var(--amber);box-shadow:0 2px 12px rgba(245,166,35,.1)}
 .q-num{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:7px}
@@ -363,7 +366,8 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
       <div class="questions-header">
         <div class="panel-title" style="margin:0">❓ ICSE Practice Questions</div>
         <div class="diff-tabs" id="main-q-tabs">
-          <button class="diff-btn active" data-diff="mcq"             onclick="filterQ('mcq',this,'main')">🔵 MCQ</button>
+          <button class="diff-btn active" data-diff="all"           onclick="filterQ('all',this,'main')">📋 All</button>
+          <button class="diff-btn"        data-diff="mcq"             onclick="filterQ('mcq',this,'main')">🔵 MCQ</button>
           <button class="diff-btn"        data-diff="fillinblanks"    onclick="filterQ('fillinblanks',this,'main')">✏️ Fill Blanks</button>
           <button class="diff-btn"        data-diff="truefalse"       onclick="filterQ('truefalse',this,'main')">✅ True/False</button>
           <button class="diff-btn"        data-diff="oddonesout"      onclick="filterQ('oddonesout',this,'main')">🔍 Odd One Out</button>
@@ -431,7 +435,8 @@ header{background:var(--navy);padding:0 2rem;display:flex;align-items:center;jus
     <div class="questions-header">
       <div class="panel-title" style="margin:0">ICSE Practice Questions</div>
       <div class="diff-tabs" id="solo-q-tabs">
-        <button class="diff-btn active" data-diff="mcq"             onclick="filterQ('mcq',this,'solo')">🔵 MCQ</button>
+        <button class="diff-btn active" data-diff="all"           onclick="filterQ('all',this,'solo')">📋 All</button>
+        <button class="diff-btn"        data-diff="mcq"             onclick="filterQ('mcq',this,'solo')">🔵 MCQ</button>
         <button class="diff-btn"        data-diff="fillinblanks"    onclick="filterQ('fillinblanks',this,'solo')">✏️ Fill Blanks</button>
         <button class="diff-btn"        data-diff="truefalse"       onclick="filterQ('truefalse',this,'solo')">✅ True/False</button>
         <button class="diff-btn"        data-diff="oddonesout"      onclick="filterQ('oddonesout',this,'solo')">🔍 Odd One Out</button>
@@ -525,9 +530,9 @@ async function generateAll(){
     document.getElementById('notes-output').style.display='block';
     // Questions
     currentQuestions=data.questions||{};
-    renderQList('mcq',currentQuestions,'q-list');
+    renderQList('all',currentQuestions,'q-list');
     document.querySelectorAll('#main-q-tabs .diff-btn').forEach(b=>b.classList.remove('active'));
-    document.querySelector('#main-q-tabs .diff-btn[data-diff="mcq"]').classList.add('active');
+    document.querySelector('#main-q-tabs .diff-btn[data-diff="all"]').classList.add('active');
     document.getElementById('q-empty').style.display='none';
     document.getElementById('q-output').style.display='block';
     // Bank
@@ -552,9 +557,9 @@ async function generateQuestionsOnly(){
     const data=await res.json();
     if(!data.success)throw new Error(data.error);
     qOnlyQuestions=data.questions||{};
-    renderQList('mcq',qOnlyQuestions,'qonly-list');
+    renderQList('all',qOnlyQuestions,'qonly-list');
     document.querySelectorAll('#solo-q-tabs .diff-btn').forEach(b=>b.classList.remove('active'));
-    document.querySelector('#solo-q-tabs .diff-btn[data-diff="mcq"]').classList.add('active');
+    document.querySelector('#solo-q-tabs .diff-btn[data-diff="all"]').classList.add('active');
     document.getElementById('qonly-output').style.display='block';
     document.getElementById('qonly-output').scrollIntoView({behavior:'smooth'});
     showToast('✅ All 7 ICSE question types ready!');
@@ -573,36 +578,79 @@ function filterQ(type,btn,panel){
 }
 
 // ── Render questions ──────────────────────────────────────────────────────────
-function renderQList(type,data,listId){
-  const qs=data[type]||[];
-  if(!qs.length){document.getElementById(listId).innerHTML='<p style="color:var(--text-muted);text-align:center;padding:2rem">No questions generated for this type. Try generating again.</p>';return;}
-  document.getElementById(listId).innerHTML=qs.map((q,i)=>{
-    let body='',answer='';
-    if(type==='mcq'){
+const Q_TYPES  = ['mcq','fillinblanks','truefalse','oddonesout','assertionreason','shortanswer','longanswer'];
+const Q_LABELS = {mcq:'Multiple Choice',fillinblanks:'Fill in the Blanks',truefalse:'True / False',oddonesout:'Odd One Out',assertionreason:'Assertion & Reason',shortanswer:'Short Answer',longanswer:'Long Answer'};
+
+function renderQList(type, data, listId) {
+  const container = document.getElementById(listId);
+  if (type === 'all') {
+    let html = '', total = 0;
+    Q_TYPES.forEach(t => {
+      const qs = data[t] || [];
+      if (!qs.length) return;
+      html += `<div class="q-section-header">${Q_LABELS[t]} <span class="q-count">${qs.length}</span></div>`;
+      html += buildQCards(t, qs, total);
+      total += qs.length;
+    });
+    container.innerHTML = html || '<p style="color:var(--text-muted);text-align:center;padding:2rem">No questions yet — click Generate.</p>';
+    return;
+  }
+  const qs = data[type] || [];
+  if (!qs.length) { container.innerHTML='<p style="color:var(--text-muted);text-align:center;padding:2rem">No questions for this type. Try generating again.</p>'; return; }
+  container.innerHTML = buildQCards(type, qs, 0);
+}
+
+function buildQCards(type, qs, offset) {
+  return qs.map((q, i) => {
+    let body='', answer='';
+    if (type==='mcq') {
       const opts=(q.options||[]).map(o=>`<div class="q-option">${o}</div>`).join('');
       body=`<div class="q-text">${q.q}</div><div class="q-options">${opts}</div>`;
       answer=`✅ <strong>${q.a}</strong>${q.explanation?'<br><span class="q-explain">💡 '+q.explanation+'</span>':''}`;
-    }else if(type==='fillinblanks'){
+    } else if (type==='fillinblanks') {
       body=`<div class="q-text">${(q.q||'').replace(/_{2,}/g,'<span class="blank">________</span>')}</div>`;
       answer=`✅ <strong>${q.a}</strong>`;
-    }else if(type==='truefalse'){
+    } else if (type==='truefalse') {
       body=`<div class="q-text">${q.q}</div>`;
       answer=`${q.a==='True'?'✅':'❌'} <strong>${q.a}</strong>${q.explanation?'<br><span class="q-explain">💡 '+q.explanation+'</span>':''}`;
-    }else if(type==='oddonesout'){
+    } else if (type==='oddonesout') {
       body=`<div class="q-text">${q.q}</div>`;
       answer=`✅ <strong>${q.a}</strong>${q.explanation?'<br><span class="q-explain">💡 '+q.explanation+'</span>':''}`;
-    }else if(type==='assertionreason'){
-      body=`<div class="q-assertion"><strong>Assertion (A):</strong> ${q.assertion}</div><div class="q-reason"><strong>Reason (R):</strong> ${q.reason}</div><div class="q-ar-choices"><div>A) Both A and R are true, and R is the correct explanation of A</div><div>B) Both A and R are true, but R is NOT the correct explanation of A</div><div>C) A is true but R is false</div><div>D) A is false but R is true</div></div>`;
+    } else if (type==='assertionreason') {
+      body=`<div class="q-assertion"><strong>Assertion (A):</strong> ${q.assertion}</div>
+            <div class="q-reason"><strong>Reason (R):</strong> ${q.reason}</div>
+            <div class="q-ar-choices">
+              <div>A) Both A and R are true, and R is the correct explanation of A</div>
+              <div>B) Both A and R are true, but R is NOT the correct explanation of A</div>
+              <div>C) A is true but R is false &nbsp;&nbsp; D) A is false but R is true</div>
+            </div>`;
       answer=`✅ <strong>${q.a}</strong>${q.explanation?'<br><span class="q-explain">💡 '+q.explanation+'</span>':''}`;
-    }else if(type==='shortanswer'){
+    } else if (type==='shortanswer') {
       body=`<div class="q-text">${q.q}</div><span class="q-marks">${q.marks||2} marks</span>`;
-      answer=q.a||'';
-    }else if(type==='longanswer'){
+      answer=formatAnswer(q.a||'');
+    } else if (type==='longanswer') {
       body=`<div class="q-text">${q.q}</div><span class="q-marks">${q.marks||5} marks</span>`;
-      answer=q.a||'';
+      answer=formatAnswer(q.a||'');
     }
-    return `<div class="q-card" onclick="this.classList.toggle('open')"><div class="q-num">Q${i+1}</div>${body}<div class="q-answer">${answer}</div></div>`;
+    return `<div class="q-card" onclick="this.classList.toggle('open')">
+      <div class="q-num">Q${offset+i+1}</div>${body}
+      <div class="q-answer">${answer}</div>
+    </div>`;
   }).join('');
+}
+
+// Format plain-text answers — converts pipe tables and highlights keywords
+function formatAnswer(text) {
+  if (!text) return '';
+  if (text.includes('|') && text.includes('---')) {
+    const rows = text.split('---').map(r=>r.trim()).filter(Boolean);
+    if (rows.length >= 2) {
+      const hdr = rows[0].split('|').map(c=>`<th>${c.trim()}</th>`).join('');
+      const body = rows.slice(1).map(r=>`<tr>${r.split('|').map(c=>`<td>${c.trim()}</td>`).join('')}</tr>`).join('');
+      return `<table class="ans-table"><thead><tr>${hdr}</tr></thead><tbody>${body}</tbody></table>`;
+    }
+  }
+  return text.replace(/\n/g,'<br>').replace(/(Given:|Formula:|Working:|Answer:|Aim:|Apparatus:|Procedure:|Observation:|Result:|Precautions?:)/g,'<strong>$1</strong>');
 }
 
 // ── Bank ──────────────────────────────────────────────────────────────────────
