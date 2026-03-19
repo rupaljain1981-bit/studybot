@@ -615,11 +615,18 @@ function buildBankPrompt(grade, subject, topic) {
 
 // ── PAST PAPER ANALYSIS ───────────────────────────────────────────────────────
 async function analyzePastPaper(fileBuffer, mimeType, grade, subject) {
-  // Step 0: Use Gemini vision (direct fetch) to transcribe the paper
-  let transcription = null;
+
+  // Gemini does BOTH reading AND solving — it has a 1M context, no token pressure
+  // Groq only handles generating NEW similar questions (small task, fits in 8b)
+
+  let solvedQuestions = [];
+  let paperAnalysis = {};
+  let transcribed = false;
+
   if (process.env.GEMINI_API_KEY) {
     try {
-      const parts = [
+      // Ask Gemini to read the paper AND solve every question in one shot
+      const solveParts = [
         {
           inline_data: {
             mime_type: mimeType === 'application/pdf' ? 'application/pdf' : mimeType,
@@ -627,81 +634,87 @@ async function analyzePastPaper(fileBuffer, mimeType, grade, subject) {
           }
         },
         {
-          text: `This is an ICSE ${grade} ${subject} past question paper.
-Transcribe EVERY question EXACTLY as printed. Include:
-- Section headings and their instructions
-- Every question number and sub-part label (Q1, Q1(a), Q1(b), etc.)
-- Marks in brackets e.g. [2] or (2 marks)
-- Complete question text — every word, every value, every unit
-- All MCQ options (A, B, C, D)
-- Any data tables or given values
+          text: `You are an expert ICSE ${grade} ${subject} teacher reading a past question paper image.
 
-Format exactly like the original paper. Do NOT answer anything — only transcribe.`
+Do TWO things:
+
+1. ANALYSE the paper: note total marks, section names, topics covered, question types.
+
+2. SOLVE every question with complete model answers:
+   - MCQ: state correct option + one-line reason why
+   - Fill in blank: the exact answer word(s)
+   - Short answer: complete 2-3 sentence ICSE model answer
+   - Numerical: Given: values / Formula: formula / Working: each step / Answer: value + SI unit
+   - Long answer: full structured answer with all key points, definitions, examples
+
+Output ONLY valid JSON — no markdown, no extra text:
+{"paperAnalysis":{"totalMarks":80,"sections":["Section A — 40 marks","Section B — 40 marks"],"topicsCovered":["topic1","topic2","topic3"],"questionTypes":["MCQ","Short Answer","Long Answer"],"difficultyObservation":"describe difficulty pattern"},"solvedQuestions":[{"qno":"Q1(a)","type":"MCQ","question":"exact question text from paper","answer":"B) correct option — reason why","marks":1,"topic":"topic name"},{"qno":"Q1(b)","type":"Short Answer","question":"exact question text","answer":"complete model answer","marks":2,"topic":"topic"}]}
+Solve ALL questions from the paper. Output JSON only.`
         }
       ];
-      transcription = await callGeminiVision(parts);
-      console.log('Gemini transcribed paper:', transcription ? transcription.length : 0, 'chars');
+
+      const geminiResult = await callGeminiVision(solveParts, 3);
+      console.log('Gemini solve result:', geminiResult ? geminiResult.length : 0, 'chars');
+
+      if (geminiResult) {
+        const parsed = safeJSON(geminiResult, null);
+        if (parsed && parsed.solvedQuestions?.length) {
+          solvedQuestions = parsed.solvedQuestions;
+          paperAnalysis   = parsed.paperAnalysis || {};
+          transcribed     = true;
+          console.log('Gemini solved', solvedQuestions.length, 'questions');
+        } else {
+          console.log('Gemini JSON parse failed — falling back to Groq curriculum generation');
+        }
+      }
     } catch(err) {
-      console.log('Gemini paper transcription failed:', err.message, '— using curriculum-based generation');
+      console.log('Gemini paper analysis failed:', err.message);
     }
-  } else {
-    console.warn('No GEMINI_API_KEY — cannot read paper image, generating curriculum-based questions');
   }
 
-  const paperContext = transcription
-    ? `Here is the EXACT transcription of the uploaded past paper:\n\n${transcription}\n\n`
-    : `Generate a typical ICSE ${grade} ${subject} board paper with realistic questions.\n\n`;
+  // If Gemini failed or key not set — use Groq to generate curriculum-based questions
+  if (!transcribed) {
+    console.log('Generating curriculum-based paper for', grade, subject);
+    const fallbackPrompt = 'You are an ICSE ' + grade + ' ' + subject + ' examiner.\n'
+      + 'Generate a realistic set of ICSE ' + grade + ' ' + subject + ' exam questions with model answers.\n'
+      + 'Include MCQ, Short Answer, and Long Answer questions.\n\n'
+      + 'Output ONLY valid JSON:\n'
+      + '{"paperAnalysis":{"totalMarks":80,"sections":["Section A","Section B"],'
+      + '"topicsCovered":["' + subject + ' key topics"],"questionTypes":["MCQ","Short Answer","Long Answer"],'
+      + '"difficultyObservation":"Typical ICSE board paper"},'
+      + '"solvedQuestions":['
+      + '{"qno":"Q1(a)","type":"MCQ","question":"specific MCQ with A) B) C) D)","answer":"B) answer — reason","marks":1,"topic":"topic"},'
+      + '{"qno":"Q1(b)","type":"Short Answer","question":"specific question","answer":"model answer","marks":2,"topic":"topic"},'
+      + '{"qno":"Q2","type":"Long Answer","question":"specific long answer question","answer":"structured model answer","marks":5,"topic":"topic"}'
+      + ']}\nOutput JSON only.';
 
-  // ── Step 2: Solve the paper (sequentially to avoid TPM limits on 8b fallback)
-  const solveAction = transcription
-    ? 'Here is the EXACT transcription of the uploaded paper. Solve EVERY question with complete model answers.'
-    : 'Generate a realistic ICSE ' + grade + ' ' + subject + ' board paper and solve every question.';
+    const fallbackRaw = await callGroq(fallbackPrompt, 1800);
+    const fb = safeJSON(fallbackRaw, { paperAnalysis:{}, solvedQuestions:[] });
+    solvedQuestions = fb.solvedQuestions || [];
+    paperAnalysis   = fb.paperAnalysis  || {};
+  }
 
-  const extractPrompt = 'You are an ICSE ' + grade + ' ' + subject + ' examiner and model answer writer.\n\n'
-    + paperContext
-    + solveAction + '\n\n'
-    + 'For each question provide:\n'
-    + '- MCQ: correct option letter + one-line reason\n'
-    + '- Fill blank: the answer word(s)\n'
-    + '- Short answer: 2-3 sentence model answer\n'
-    + '- Numerical: Given / Formula / Working / Answer with SI unit\n'
-    + '- Long answer: structured answer with all key points\n\n'
-    + 'Output ONLY valid JSON — start with { and end with }:\n'
-    + '{"paperAnalysis":{"totalMarks":80,"sections":["Section A","Section B"],"topicsCovered":["topic1","topic2"],"questionTypes":["MCQ","Short Answer","Long Answer"],"difficultyObservation":"mixed"},'
-    + '"solvedQuestions":['
-    + '{"qno":"1(a)","type":"MCQ","question":"actual question","answer":"B) answer — reason","marks":1,"topic":"topic"},'
-    + '{"qno":"1(b)","type":"Short Answer","question":"actual question","answer":"model answer","marks":2,"topic":"topic"}'
-    + ']}\nReplace ALL placeholders with real content. Output JSON only.';
-
-  // Run sequentially — avoid both hitting 8b TPM limit at the same time
-  const solvedRaw = await callGroq(extractPrompt, 5000);
-  const solved = safeJSON(solvedRaw, { paperAnalysis:{}, solvedQuestions:[] });
-  console.log('Solved questions parsed:', solved.solvedQuestions?.length || 0);
-
-  // Small delay before second call to avoid TPM spike
-  await sleep(1000);
-
-  const topics = (solved.paperAnalysis?.topicsCovered || [subject]).join(', ');
-  const generatePrompt = 'You are an ICSE ' + grade + ' ' + subject + ' examiner.\n'
-    + 'Generate 10 NEW exam-quality questions on these topics: ' + topics + '\n'
-    + 'Mix types: MCQ, Fill in Blank, Short Answer, Numerical, Long Answer.\n'
-    + 'For every question give a complete model answer.\n\n'
+  // Groq generates NEW similar questions — small focused prompt fits in 8b
+  await sleep(800);
+  const topics = (paperAnalysis.topicsCovered || [subject]).slice(0, 3).join(', ');
+  const genPrompt = 'You are an ICSE ' + grade + ' ' + subject + ' examiner.\n'
+    + 'Generate 8 NEW questions on: ' + topics + '\n'
+    + 'Mix: 2 MCQ, 2 Short Answer, 2 Numerical, 2 Long Answer. Give complete model answers.\n\n'
     + 'Output ONLY valid JSON:\n'
     + '{"generatedQuestions":['
-    + '{"type":"MCQ","difficulty":"easy","question":"specific question with A) B) C) D)","answer":"B) answer — reason","marks":1,"topic":"topic"},'
-    + '{"type":"Short Answer","difficulty":"medium","question":"specific question","answer":"complete model answer","marks":2,"topic":"topic"},'
-    + '{"type":"Numerical","difficulty":"medium","question":"word problem with values","answer":"Given:... Formula:... Working:... Answer: value + unit","marks":3,"topic":"topic"},'
-    + '{"type":"Long Answer","difficulty":"hard","question":"specific 5-mark question","answer":"full structured answer","marks":5,"topic":"topic"}'
-    + ']}\nGenerate all 10 questions. Output JSON only.';
+    + '{"type":"MCQ","difficulty":"medium","question":"question with A) B) C) D)","answer":"C) answer — reason","marks":1,"topic":"' + (topics.split(',')[0]?.trim() || subject) + '"},'
+    + '{"type":"Short Answer","difficulty":"medium","question":"2-mark question","answer":"model answer","marks":2,"topic":"topic"},'
+    + '{"type":"Long Answer","difficulty":"hard","question":"5-mark question","answer":"structured answer","marks":5,"topic":"topic"}'
+    + ']}\nOutput JSON only.';
 
-  const generatedRaw = await callGroq(generatePrompt, 3500);
-  const generated = safeJSON(generatedRaw, { generatedQuestions:[] });
+  const genRaw = await callGroq(genPrompt, 1800);
+  const generated = safeJSON(genRaw, { generatedQuestions:[] });
 
   return {
-    paperAnalysis:      solved.paperAnalysis       || {},
-    solvedQuestions:    solved.solvedQuestions      || [],
+    paperAnalysis,
+    solvedQuestions,
     generatedQuestions: generated.generatedQuestions || [],
-    transcribed: !!transcription
+    transcribed
   };
 }
 // ── Generate questions ────────────────────────────────────────────────────────
