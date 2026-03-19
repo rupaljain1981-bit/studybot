@@ -880,4 +880,12 @@ Make everything specific to "${topic}" in ICSE ${grade} ${subject}. Output JSON 
 });
 
 app.get('/api/health', (_, res) => res.json({ status:'ok', powered_by:'Groq LLaMA — ICSE aligned' }));
-app.listen(PORT, () => console.log(`\n🎓 StudyBot ICSE running at http://localhost:${PORT}\n`));
+app.listen(PORT, () => {
+  console.log(`\n🎓 StudyBot ICSE running at http://localhost:${PORT}`);
+  if (geminiClient) {
+    console.log('✅ Gemini vision ready (gemini-1.5-flash) — document upload will work');
+  } else {
+    console.log('⚠️  GEMINI_API_KEY not set — document upload will use topic-only fallback');
+  }
+  console.log('');
+});
