@@ -813,8 +813,16 @@ async function generateAll() {
 
     // Notes
     currentNotes = data.notes;
+    let sourceTag;
+    if (data.fromTopic) {
+      sourceTag = '🌐 AI-generated from ICSE curriculum';
+    } else if (data.visionUsed) {
+      sourceTag = '📸 Generated from your ' + data.filesRead + ' uploaded page' + (data.filesRead > 1 ? 's' : '') + ' — AI read your book';
+    } else {
+      sourceTag = '⚠️ Files uploaded but could not be read (add GEMINI_API_KEY) — showing curriculum notes';
+    }
     document.getElementById('notes-html').innerHTML =
-      '<div class="source-tag">' + (data.fromTopic ? '🌐 AI-generated · ICSE curriculum' : '📄 From uploaded files') + '</div>' +
+      '<div class="source-tag">' + sourceTag + '</div>' +
       data.notes;
 
     // Questions
@@ -1043,7 +1051,7 @@ async function analyzePaper() {
     // Default to solved tab
     const solvedBtn = document.querySelector('#page-paper .sub-tab');
     showSubTab('pp','solved', solvedBtn);
-    showToast('✅ ' + sqs.length + ' solved + ' + gqs.length + ' new questions!');
+    showToast(data.transcribed ? '✅ Paper read & solved! ' + sqs.length + ' answers + ' + gqs.length + ' similar questions.' : '⚠️ Vision unavailable — showing curriculum questions.');
   } catch(e) { showToast(e.message, true); }
   finally { hideLoader(); btn.disabled=false; btn.textContent='🔍 Solve Paper & Generate Similar Questions'; }
 }
