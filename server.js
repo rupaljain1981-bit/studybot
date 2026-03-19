@@ -39,8 +39,8 @@ function subjectType(s) {
 }
 
 // ── Gemini vision (direct API — no SDK, works in all regions) ────────────────
-// Uses gemini-2.0-flash which is free, fast, and supports multimodal vision
-const GEMINI_VISION_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+// Uses gemini-2.5-flash (current free tier model as of 2026), fast, and supports multimodal vision
+const GEMINI_VISION_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
 // ── Gemini vision via direct fetch (no SDK — works in all regions) ────────────
 async function callGeminiVision(parts, maxAttempts = 3) {
@@ -912,7 +912,7 @@ app.get('/api/health', (_, res) => res.json({ status:'ok', powered_by:'Groq LLaM
 app.listen(PORT, () => {
   console.log(`\n🎓 StudyBot ICSE running at http://localhost:${PORT}`);
   if (process.env.GEMINI_API_KEY) {
-    console.log('✅ Gemini vision ready (gemini-2.0-flash via direct API) — document upload will work');
+    console.log('✅ Gemini vision ready (gemini-2.5-flash via direct API) — document upload will work');
   } else {
     console.log('⚠️  GEMINI_API_KEY not set — document upload will use topic-only fallback');
   }
