@@ -232,17 +232,40 @@ function safeJSON(raw, fallback = {}) {
       try { return JSON.parse(text.slice(0, lastClose + 1)); } catch(_) {}
     }
 
-    // Attempt 3: close unclosed brackets/braces
+    // Attempt 3: close unclosed strings, brackets, braces
     let opens = 0, arr = 0;
     for (const c of text) {
       if (c === '{') opens++; else if (c === '}') opens--;
       if (c === '[') arr++;   else if (c === ']') arr--;
     }
     let fixed = text.replace(/,\s*([}\]])/, '$1');  // remove trailing commas
-    fixed = fixed.replace(/,\s*$/, '');
-    for (let i = 0; i < Math.max(0,arr);  i++) fixed += ']';
-    for (let i = 0; i < Math.max(0,opens); i++) fixed += '}';
+    fixed = fixed.replace(/,\s*$/, '');             // remove trailing comma
+    // Count unclosed quotes to detect truncated string values
+    const quoteCount = (fixed.match(/(?<!\\)"/g) || []).length;
+    if (quoteCount % 2 !== 0) fixed += '"';          // close open string
+    for (let i = 0; i < Math.max(0, arr);   i++) fixed += ']';
+    for (let i = 0; i < Math.max(0, opens); i++) fixed += '}';
     try { return JSON.parse(fixed); } catch(_) {}
+
+    // Attempt 4: cut at the last complete key-value pair before truncation
+    const lastComma = text.lastIndexOf('},{');
+    if (lastComma > 0) {
+      let chopped = text.slice(0, lastComma + 1) + ']';
+      // find the opening [ to wrap it
+      const arrStart = chopped.lastIndexOf('[');
+      if (arrStart > 0) {
+        const prefix = chopped.slice(0, arrStart + 1);
+        const suffix = chopped.slice(arrStart + 1);
+        const q2 = (suffix.match(/(?<!\\)"/g)||[]).length;
+        let s2 = suffix;
+        if (q2 % 2 !== 0) s2 += '"';
+        let o2=0, a2=0;
+        for (const c of s2) { if(c==='{')o2++;else if(c==='}')o2--;if(c==='[')a2++;else if(c===']')a2--; }
+        for (let i=0;i<Math.max(0,a2);i++) s2+=']';
+        for (let i=0;i<Math.max(0,o2);i++) s2+='}';
+        try { return JSON.parse(prefix + s2); } catch(_) {}
+      }
+    }
 
     throw new Error('Could not parse JSON even after repair');
   } catch(e) {
