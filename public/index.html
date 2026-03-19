@@ -1028,19 +1028,28 @@ function printBank(){
   syncMn();
 })();
 
-// ── Essay Generator ───────────────────────────────────────────────────────────
+// ── Essay Generator ──────────────────────────────────────────────────────────
 async function generateEssay() {
   const topic = document.getElementById('essayTopic').value.trim();
   if (!topic) { showToast('Please enter an essay topic!', true); return; }
-  const btn = document.getElementById('essayBtn');
+  const btn  = document.getElementById('essayBtn');
+  const lang = document.getElementById('essayLang').value;
+  const type = document.getElementById('essayType').options[document.getElementById('essayType').selectedIndex].text;
   btn.disabled = true; btn.textContent = '⏳ Writing essay…';
-  showLoader('✍️ Writing your ICSE essay…');
+
+  // Show relevant loader message
+  document.getElementById('loader-text').textContent = '✍️ Writing your ' + lang + ' essay…';
+  document.getElementById('step1').textContent = '📝 Crafting introduction…';
+  document.getElementById('step2').textContent = '✍️ Developing body paragraphs…';
+  document.getElementById('step3').textContent = '✅ Adding vocabulary & examiner tips…';
+  document.getElementById('loader').classList.add('show');
+
   try {
     const res = await fetch('/api/generate-essay', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
         grade:     document.getElementById('essayGrade').value,
-        language:  document.getElementById('essayLang').value,
+        language:  lang,
         essayType: document.getElementById('essayType').value,
         wordLimit: document.getElementById('essayWords').value,
         topic
@@ -1049,49 +1058,62 @@ async function generateEssay() {
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
 
-    // Parse and display the essay sections
-    const raw = data.essay;
-    const essayMatch  = raw.match(/\[ESSAY\]([\s\S]*?)(?=\[WORD COUNT\]|\[VOCABULARY|\[EXAMINER|$)/i);
-    const wcMatch     = raw.match(/\[WORD COUNT\]([\s\S]*?)(?=\[VOCABULARY|\[EXAMINER|$)/i);
-    const vocabMatch  = raw.match(/\[VOCABULARY HIGHLIGHTS\]([\s\S]*?)(?=\[EXAMINER|$)/i);
-    const tipMatch    = raw.match(/\[EXAMINER TIP\]([\s\S]*?)$/i);
+    const raw = data.essay || '';
 
-    const essayText = essayText0;
-    const wcText    = wcText0;
-    const vocabText = vocabText0;
-    const tipText   = tipText0;
+    // Split on section markers — safe string method, no complex regex
+    const secEssay = raw.indexOf('[ESSAY]');
+    const secWC    = raw.indexOf('[WORD COUNT]');
+    const secVocab = raw.indexOf('[VOCABULARY HIGHLIGHTS]');
+    const secTip   = raw.indexOf('[EXAMINER TIP]');
 
-    const langName = document.getElementById('essayLang').value;
-    const typeName = document.getElementById('essayType').options[document.getElementById('essayType').selectedIndex].text;
-    const grade    = document.getElementById('essayGrade').value;
+    const essayText = secEssay >= 0
+      ? raw.slice(secEssay + 7, secWC >= 0 ? secWC : secVocab >= 0 ? secVocab : secTip >= 0 ? secTip : undefined).trim()
+      : raw.trim();
+    const wcText    = secWC    >= 0 ? raw.slice(secWC    + 12, secVocab >= 0 ? secVocab : secTip >= 0 ? secTip : undefined).trim() : '';
+    const vocabText = secVocab >= 0 ? raw.slice(secVocab + 23, secTip   >= 0 ? secTip   : undefined).trim() : '';
+    const tipText   = secTip   >= 0 ? raw.slice(secTip   + 14).trim() : '';
 
-    document.getElementById('essay-text').innerHTML = `
-      <div class="essay-section">
-        <div class="essay-section-title">✍️ ${typeName} — ${topic}</div>
-        <div class="essay-body">${essayText.replace(/\n/g,'<br>')}</div>
-      </div>
-      ${wcText || vocabText || tipText ? `<div class="essay-meta">
-        ${wcText ? `<p><strong>📊 ${wcText}</strong></p>` : ''}
-        ${vocabText ? `<p style="margin-top:.75rem"><strong>📚 Vocabulary Highlights:</strong></p><div style="margin-top:.5rem">${
-          vocabText.split(/\n/).filter(l=>l.trim()).map(l=>{
-            const m = l.match(/^[\d.]+\s+(.+?)\s*[—-]+\s*(.+)$/);
-            return m ? `<div class="vocab-item"><span class="vocab-word">${m[1]}</span><span>${m[2]}</span></div>`
-                     : `<div style="font-size:13px;margin-bottom:4px">${l}</div>`;
-          }).join('')
-        }</div>` : ''}
-        ${tipText ? `<p style="margin-top:.75rem"><strong>💡 Examiner Tip:</strong> ${tipText}</p>` : ''}
-      </div>` : ''}`;
+    const grade = document.getElementById('essayGrade').value;
+
+    // Build vocab HTML safely
+    let vocabHtml = '';
+    if (vocabText) {
+      vocabText.split('\n').filter(l => l.trim()).forEach(l => {
+        const dash = l.indexOf(' — ');
+        const num  = l.match(/^[\d.]+\s+/);
+        const word = num ? l.slice(num[0].length, dash >= 0 ? dash : undefined).trim() : l.slice(0, dash >= 0 ? dash : undefined).trim();
+        const meaning = dash >= 0 ? l.slice(dash + 3).trim() : '';
+        if (word) {
+          vocabHtml += '<div class="vocab-item"><span class="vocab-word">' + word + '</span><span>' + (meaning || l) + '</span></div>';
+        } else {
+          vocabHtml += '<div style="font-size:13px;margin-bottom:4px">' + l + '</div>';
+        }
+      });
+    }
+
+    document.getElementById('essay-text').innerHTML =
+      '<div class="essay-section">' +
+        '<div class="essay-section-title">✍️ ' + type + ' — ' + topic + ' (' + grade + ', ' + lang + ')</div>' +
+        '<div class="essay-body">' + essayText.replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>') + '</div>' +
+      '</div>' +
+      (wcText || vocabHtml || tipText ? '<div class="essay-meta">' +
+        (wcText  ? '<p><strong>📊 ' + wcText + '</strong></p>' : '') +
+        (vocabHtml ? '<p style="margin-top:.75rem"><strong>📚 Vocabulary Highlights:</strong></p><div style="margin-top:.5rem">' + vocabHtml + '</div>' : '') +
+        (tipText ? '<p style="margin-top:.75rem"><strong>💡 Examiner Tip:</strong> ' + tipText + '</p>' : '') +
+      '</div>' : '');
 
     document.getElementById('essay-output').style.display = 'block';
     document.getElementById('essay-output').scrollIntoView({behavior:'smooth'});
     showToast('✅ Essay ready!');
   } catch(e) { showToast(e.message, true); }
-  finally { hideLoader(); btn.disabled=false; btn.textContent='✍️ Generate Essay'; }
+  finally {
+    document.getElementById('loader').classList.remove('show');
+    btn.disabled = false; btn.textContent = '✍️ Generate Essay';
+  }
 }
 
 function copyEssay() {
-  const el = document.getElementById('essay-text');
-  navigator.clipboard.writeText(el.innerText);
+  navigator.clipboard.writeText(document.getElementById('essay-text').innerText);
   showToast('📋 Essay copied!');
 }
 
@@ -1100,12 +1122,11 @@ function printEssay() {
   const grade = document.getElementById('essayGrade').value;
   const lang  = document.getElementById('essayLang').value;
   const type  = document.getElementById('essayType').options[document.getElementById('essayType').selectedIndex].text;
-  const html  = `<div class="print-header"><h1>📚 StudyBot — Essay</h1>
-    <div class="meta">${grade} · ${lang} · ${type} · "${topic}" | ${new Date().toLocaleDateString()}</div></div>`
+  const html  = '<div class="print-header"><h1>📚 StudyBot — Essay</h1>'
+    + '<div class="meta">' + grade + ' · ' + lang + ' · ' + type + ' · "' + topic + '" | ' + new Date().toLocaleDateString() + '</div></div>'
     + document.getElementById('essay-text').innerHTML;
   doPrint(html);
 }
-
 // ── Mnemonic Generator ────────────────────────────────────────────────────────
 async function generateMnemonics() {
   const topic = document.getElementById('mnTopic').value.trim();
