@@ -332,6 +332,19 @@ a{color:var(--teal);text-decoration:none}
 .empty-state p{font-size:13px}
 
 /* ── Print ── */
+
+/* ── Inline progress panel ── */
+.gen-progress{background:var(--navy);border-radius:var(--r);padding:1.5rem;margin:1rem 0;text-align:center}
+.gen-spinner{width:36px;height:36px;border:3px solid rgba(245,166,35,.25);border-top-color:var(--amber-lt);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto .75rem}
+.gen-pages{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:.75rem 0}
+.gen-page{font-size:12px;padding:5px 12px;border-radius:20px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.6);transition:all .3s}
+.gen-page.reading{background:rgba(245,166,35,.2);color:var(--amber-lt)}
+.gen-page.done{background:rgba(39,174,96,.2);color:#2ecc71}
+.gen-page.failed{background:rgba(192,57,43,.2);color:#e74c3c}
+.gen-msg{color:rgba(255,255,255,.8);font-size:14px;font-weight:500}
+.pp-progress{background:var(--navy);border-radius:var(--r-sm);padding:.9rem 1.1rem;margin-bottom:1rem}
+.pp-progress-msg{color:rgba(255,255,255,.8);font-size:13px}
+
 @media print{
   .app-header,.main-nav,.btn,.btn-row,.sub-tabs,.ask-box,.toast,.loader-overlay{display:none!important}
   body{background:#fff;color:#000;font-size:12pt}
@@ -786,65 +799,137 @@ async function generateAll() {
   if (!selectedFiles.length && !topic) { showToast('Please enter a topic or upload files!', true); return; }
   const btn = document.getElementById('generateBtn');
   btn.disabled = true;
-  const pb = document.getElementById('progressBar'), pf = document.getElementById('progressFill');
-  pb.classList.add('show'); pf.style.width = '0%';
   const subj = document.getElementById('subject').value;
-  const isBio = subj === 'Biology';
-  showLoader(
-    '🧠 Generating ICSE content…',
-    isBio ? '📚 Creating notes with diagrams…' : '📚 Creating study notes…',
-    '❓ Building 7 question types…',
-    '🏦 Compiling question bank…'
-  );
-  let prog = 0;
-  const timer = setInterval(() => { prog = Math.min(prog+1, 88); pf.style.width = prog+'%'; }, 700);
+  const grade = document.getElementById('grade').value;
+  const hasFiles = selectedFiles.length > 0;
+
+  // Show inline progress panel instead of blocking loader
+  document.getElementById('study-empty').style.display = 'none';
+  document.getElementById('study-output').style.display = 'block';
+  document.getElementById('notes-html').innerHTML = buildProgressPanel(hasFiles ? selectedFiles.length : 0);
+  const notesBtn = document.querySelector('#page-study .sub-tab');
+  showSubTab('st', 'notes', notesBtn);
 
   const fd = new FormData();
   selectedFiles.forEach(f => fd.append('files', f));
   fd.append('subject', subj);
   fd.append('topic', topic);
-  fd.append('grade', document.getElementById('grade').value);
+  fd.append('grade', grade);
+
+  // Accumulated question data
+  const allQuestions = { mcq:[], fillinblanks:[], truefalse:[], oddonesout:[], assertionreason:[], shortanswer:[], longanswer:[] };
 
   try {
-    const res  = await fetch('/api/generate-all', { method:'POST', body:fd });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.error);
-    clearInterval(timer); pf.style.width = '100%';
+    const response = await fetch('/api/generate-all', { method:'POST', body:fd });
+    const reader   = response.body.getReader();
+    const decoder  = new TextDecoder();
+    let buffer = '';
 
-    // Notes
-    currentNotes = data.notes;
-    let sourceTag;
-    if (data.fromTopic) {
-      sourceTag = '🌐 AI-generated from ICSE curriculum';
-    } else if (data.visionUsed) {
-      sourceTag = '📸 Generated from your ' + data.filesRead + ' uploaded page' + (data.filesRead > 1 ? 's' : '') + ' — AI read your book';
-    } else {
-      sourceTag = '⚠️ Files uploaded but could not be read (add GEMINI_API_KEY) — showing curriculum notes';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // Parse SSE events from buffer
+      const events = buffer.split('\n\n');
+      buffer = events.pop(); // keep incomplete last chunk
+
+      for (const block of events) {
+        const lines = block.split('\n');
+        const eventLine = lines.find(l => l.startsWith('event:'));
+        const dataLine  = lines.find(l => l.startsWith('data:'));
+        if (!eventLine || !dataLine) continue;
+
+        const event = eventLine.replace('event:', '').trim();
+        let data;
+        try { data = JSON.parse(dataLine.replace('data:', '').trim()); } catch(_) { continue; }
+
+        switch(event) {
+          case 'progress':
+            updateProgressPanel(data);
+            break;
+
+          case 'notes':
+            currentNotes = data.notes;
+            const sourceTag = data.fromTopic
+              ? '🌐 AI-generated from ICSE curriculum'
+              : data.visionUsed
+              ? '📸 Read from ' + data.filesRead + ' uploaded page' + (data.filesRead > 1 ? 's' : '')
+              : '⚠️ Could not read files (add GEMINI_API_KEY)';
+            document.getElementById('notes-html').innerHTML =
+              '<div class="source-tag">' + sourceTag + '</div>' + data.notes
+              + buildProgressPanel(0, true); // progress panel at bottom for questions
+            break;
+
+          case 'questions_partial':
+            Object.assign(allQuestions, data.data || {});
+            currentQuestions = { ...allQuestions };
+            // Update questions tab in background
+            renderQList('all', currentQuestions, 'q-list', 'main-q-tabs');
+            updateProgressPanel({ stage: 'questions', message: '✅ ' + Object.values(allQuestions).flat().length + ' questions ready so far…' });
+            break;
+
+          case 'bank':
+            currentBank = data.bank?.questions || [];
+            renderBank(currentBank);
+            break;
+
+          case 'done':
+            document.getElementById('study-output').style.display = 'block';
+            // Remove progress panel
+            const pp = document.getElementById('gen-progress-panel');
+            if (pp) pp.remove();
+            renderQList('all', currentQuestions, 'q-list', 'main-q-tabs');
+            showToast('✅ All done! Notes, questions and question bank ready.');
+            break;
+
+          case 'error':
+            showToast(data.error, true);
+            break;
+        }
+      }
     }
-    document.getElementById('notes-html').innerHTML =
-      '<div class="source-tag">' + sourceTag + '</div>' +
-      data.notes;
+  } catch(e) { showToast(e.message || 'Generation failed. Please try again.', true); }
+  finally { btn.disabled = false; }
+}
 
-    // Questions
-    currentQuestions = data.questions || {};
-    renderQList('all', currentQuestions, 'q-list', 'main-q-tabs');
+function buildProgressPanel(pageCount, compact = false) {
+  if (compact) {
+    return '<div id="gen-progress-panel" class="gen-progress"><div id="gen-progress-msg" class="gen-msg">⏳ Generating questions…</div></div>';
+  }
+  const pagesHtml = pageCount > 0
+    ? '<div class="gen-pages">'
+      + Array.from({length: pageCount}, (_, i) =>
+          '<div class="gen-page" id="gen-page-' + (i+1) + '">📄 Page ' + (i+1) + '</div>'
+        ).join('')
+      + '</div>'
+    : '';
+  return '<div id="gen-progress-panel" class="gen-progress">'
+    + '<div class="gen-spinner"></div>'
+    + pagesHtml
+    + '<div id="gen-progress-msg" class="gen-msg">🧠 Starting…</div>'
+    + '</div>';
+}
 
-    // Bank
-    currentBank = data.bank?.questions || [];
-    renderBank(currentBank);
+function updateProgressPanel(data) {
+  const msg = document.getElementById('gen-progress-msg');
+  if (msg) msg.textContent = data.message || '';
 
-    document.getElementById('study-empty').style.display = 'none';
-    document.getElementById('study-output').style.display = 'block';
-
-    // Auto-switch to notes sub-tab
-    const notesBtn = document.querySelector('#page-study .sub-tab');
-    showSubTab('st', 'notes', notesBtn);
-
-    showToast('✅ Notes, questions and question bank ready!');
-  } catch(e) { clearInterval(timer); showToast(e.message, true); }
-  finally {
-    hideLoader(); btn.disabled = false;
-    setTimeout(() => { pb.classList.remove('show'); pf.style.width='0%'; }, 1200);
+  // Update page indicator if applicable
+  if (data.page) {
+    const pageEl = document.getElementById('gen-page-' + data.page);
+    if (pageEl) {
+      if (data.stage === 'page_done') {
+        pageEl.textContent = '✅ Page ' + data.page;
+        pageEl.classList.add('done');
+      } else if (data.stage === 'page_failed') {
+        pageEl.textContent = '⚠️ Page ' + data.page;
+        pageEl.classList.add('failed');
+      } else {
+        pageEl.textContent = '⏳ Page ' + data.page + '…';
+        pageEl.classList.add('reading');
+      }
+    }
   }
 }
 
@@ -1005,55 +1090,87 @@ function setPPFile(f) {
 async function analyzePaper() {
   if (!ppFile) { showToast('Please upload a past paper first!', true); return; }
   const btn = document.getElementById('ppBtn');
-  btn.disabled = true; btn.textContent = '⏳ Solving paper…';
-  showLoader('🔍 Solving paper & generating similar questions…', '📋 Extracting questions…', '✅ Writing model answers…', '✨ Generating similar questions…');
+  btn.disabled = true; btn.textContent = '⏳ Processing…';
+
+  // Show live progress inside the output area immediately
+  document.getElementById('pp-empty').style.display = 'none';
+  document.getElementById('pp-output').style.display = 'block';
+  document.getElementById('pp-analysis').innerHTML =
+    '<div class="pp-progress"><div class="gen-spinner" style="margin:0 auto .5rem;width:28px;height:28px;border-width:3px"></div>'
+    + '<div class="pp-progress-msg" id="pp-progress-msg">📄 Uploading paper to AI vision…</div></div>';
+  document.getElementById('pp-solved').innerHTML = '';
+  document.getElementById('pp-generated').innerHTML = '';
+
   const fd = new FormData();
   fd.append('paper', ppFile);
   fd.append('grade',   document.getElementById('ppGrade').value);
   fd.append('subject', document.getElementById('ppSubject').value);
+
   try {
-    const res  = await fetch('/api/analyze-paper', { method:'POST', body:fd });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.error);
-    ppData = data;
-    const pa = data.paperAnalysis || {};
-    document.getElementById('pp-analysis').innerHTML =
-      '<div class="pp-row"><span class="pp-label">Paper</span><span class="pp-val">' + (document.getElementById('ppLabel').value || 'Uploaded Paper') + ' — ' + document.getElementById('ppGrade').value + ' ' + document.getElementById('ppSubject').value + '</span></div>'
-      + '<div class="pp-row"><span class="pp-label">Total Marks</span><span class="pp-val">' + (pa.totalMarks||'N/A') + '</span></div>'
-      + '<div class="pp-row"><span class="pp-label">Sections</span><span class="pp-val">' + ((pa.sections||[]).join(' · ')||'N/A') + '</span></div>'
-      + '<div class="pp-row"><span class="pp-label">Topics</span><span class="pp-val">' + ((pa.topicsCovered||[]).join(', ')||'N/A') + '</span></div>'
-      + '<div class="pp-row"><span class="pp-label">Difficulty</span><span class="pp-val">' + (pa.difficultyObservation||'N/A') + '</span></div>';
+    const response = await fetch('/api/analyze-paper', { method:'POST', body:fd });
+    const reader   = response.body.getReader();
+    const decoder  = new TextDecoder();
+    let buffer = '';
 
-    const sqs = data.solvedQuestions || [];
-    document.getElementById('pp-solved').innerHTML = sqs.length
-      ? sqs.map((q,i) =>
-          '<div class="q-card" onclick="this.classList.toggle(\'open\')">'
-          + '<div class="q-num">' + (q.qno||('Q'+(i+1))) + ' <span class="type-pill">' + (q.type||'—') + '</span> <span class="q-marks">' + (q.marks||'?') + ' marks</span></div>'
-          + '<div class="q-text">' + q.question + '</div>'
-          + '<div class="q-answer">✅ <strong>Model Answer:</strong><br>' + formatAnswer(q.answer||'') + '<br><span class="q-explain">📌 Topic: ' + (q.topic||'—') + '</span></div>'
-          + '</div>'
-        ).join('')
-      : '<div class="empty-state"><div class="ei">📋</div><h3>No solved questions</h3></div>';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split('\n\n');
+      buffer = events.pop();
 
-    const gqs = data.generatedQuestions || [];
-    document.getElementById('pp-generated').innerHTML = gqs.length
-      ? gqs.map((q,i) =>
-          '<div class="q-card" onclick="this.classList.toggle(\'open\')">'
-          + '<div class="q-num">Q' + (i+1) + ' <span class="type-pill">' + (q.type||'—') + '</span> <span class="q-marks">' + (q.marks||'?') + ' marks</span> <span class="diff-pill ' + (q.difficulty||'medium') + '">' + (q.difficulty||'—') + '</span></div>'
-          + '<div class="q-text">' + q.question + '</div>'
-          + '<div class="q-answer">' + formatAnswer(q.answer||'') + '</div>'
-          + '</div>'
-        ).join('')
-      : '<div class="empty-state"><div class="ei">✨</div><h3>No similar questions</h3></div>';
+      for (const block of events) {
+        const lines   = block.split('\n');
+        const evLine  = lines.find(l => l.startsWith('event:'));
+        const datLine = lines.find(l => l.startsWith('data:'));
+        if (!evLine || !datLine) continue;
+        const event = evLine.replace('event:','').trim();
+        let data;
+        try { data = JSON.parse(datLine.replace('data:','').trim()); } catch(_) { continue; }
 
-    document.getElementById('pp-empty').style.display = 'none';
-    document.getElementById('pp-output').style.display = 'block';
-    // Default to solved tab
-    const solvedBtn = document.querySelector('#page-paper .sub-tab');
-    showSubTab('pp','solved', solvedBtn);
-    showToast(data.transcribed ? '✅ Paper read & solved! ' + sqs.length + ' answers + ' + gqs.length + ' similar questions.' : '⚠️ Vision unavailable — showing curriculum questions.');
-  } catch(e) { showToast(e.message, true); }
-  finally { hideLoader(); btn.disabled=false; btn.textContent='🔍 Solve Paper & Generate Similar Questions'; }
+        if (event === 'progress') {
+          const el = document.getElementById('pp-progress-msg');
+          if (el) el.textContent = data.message || '…';
+        }
+
+        if (event === 'analysis') {
+          ppData = data;
+          const pa = data.paperAnalysis || {};
+          document.getElementById('pp-analysis').innerHTML =
+            '<div class="pp-row"><span class="pp-label">Status</span><span class="pp-val">' + (data.transcribed ? '✅ Paper read by AI vision' : '⚠️ Vision unavailable — curriculum questions') + '</span></div>'
+            + '<div class="pp-row"><span class="pp-label">Paper</span><span class="pp-val">' + (document.getElementById('ppLabel').value || 'Uploaded') + ' — ' + document.getElementById('ppGrade').value + ' ' + document.getElementById('ppSubject').value + '</span></div>'
+            + '<div class="pp-row"><span class="pp-label">Total Marks</span><span class="pp-val">' + (pa.totalMarks||'N/A') + '</span></div>'
+            + '<div class="pp-row"><span class="pp-label">Topics</span><span class="pp-val">' + ((pa.topicsCovered||[]).join(', ')||'N/A') + '</span></div>'
+            + '<div class="pp-row"><span class="pp-label">Difficulty</span><span class="pp-val">' + (pa.difficultyObservation||'N/A') + '</span></div>';
+
+          const sqs = data.solvedQuestions || [];
+          document.getElementById('pp-solved').innerHTML = sqs.length
+            ? sqs.map((q,i) => '<div class="q-card" onclick="this.classList.toggle(&#39;open&#39;)">'
+                + '<div class="q-num">' + (q.qno||('Q'+(i+1))) + ' <span class="type-pill">' + (q.type||'—') + '</span> <span class="q-marks">' + (q.marks||'?') + ' marks</span></div>'
+                + '<div class="q-text">' + q.question + '</div>'
+                + '<div class="q-answer">✅ <strong>Model Answer:</strong><br>' + formatAnswer(q.answer||'') + '</div>'
+                + '</div>').join('')
+            : '<div class="empty-state"><div class="ei">📋</div><h3>No solved questions yet</h3></div>';
+
+          const gqs = data.generatedQuestions || [];
+          document.getElementById('pp-generated').innerHTML = gqs.length
+            ? gqs.map((q,i) => '<div class="q-card" onclick="this.classList.toggle(&#39;open&#39;)">'
+                + '<div class="q-num">Q' + (i+1) + ' <span class="type-pill">' + (q.type||'—') + '</span> <span class="q-marks">' + (q.marks||'?') + ' marks</span></div>'
+                + '<div class="q-text">' + q.question + '</div>'
+                + '<div class="q-answer">' + formatAnswer(q.answer||'') + '</div>'
+                + '</div>').join('')
+            : '<div class="empty-state"><div class="ei">✨</div><h3>No similar questions</h3></div>';
+
+          const solvedBtn = document.querySelector('#page-paper .sub-tab');
+          showSubTab('pp','solved', solvedBtn);
+          showToast(data.transcribed ? '✅ ' + sqs.length + ' solved + ' + gqs.length + ' new questions!' : '⚠️ Vision unavailable — curriculum questions shown.');
+        }
+
+        if (event === 'error') { showToast(data.error, true); }
+      }
+    }
+  } catch(e) { showToast(e.message || 'Failed. Please try again.', true); }
+  finally { btn.disabled=false; btn.textContent='🔍 Solve Paper & Generate Similar Questions'; }
 }
 
 // ── Essay ─────────────────────────────────────────────────────────────────────
