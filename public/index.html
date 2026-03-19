@@ -402,12 +402,15 @@ a{color:var(--teal);text-decoration:none}
       <div class="fg"><label>Subject</label><select id="subject"></select></div>
       <div class="fg"><label>Chapter / Topic</label><input type="text" id="topic" placeholder="e.g. Photosynthesis, Quadratic Equations…"></div>
     </div>
-    <div class="optional-tag">Upload optional</div>
+    <div class="optional-tag">Upload optional — topic alone is enough</div>
     <div class="drop-zone" id="dropzone">
-      <input type="file" id="fileInput" accept="image/*,.pdf" multiple>
-      <div class="dz-icon">📎</div>
-      <div class="dz-label">Drop textbook images or PDFs here</div>
-      <div class="dz-sub">JPG, PNG, WEBP, PDF · up to 20MB each · topic name alone is enough</div>
+      <input type="file" id="fileInput" accept="image/*,.pdf" multiple capture="environment">
+      <div class="dz-icon">📸</div>
+      <div class="dz-label">Drop or tap to upload textbook pages</div>
+      <div class="dz-sub">📷 Camera photos · 📄 PDFs · multiple pages supported · AI reads all pages together</div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-top:.5rem;padding:8px 10px;background:var(--surface);border-radius:6px;border-left:3px solid var(--teal)">
+      💡 <strong>Camera tips:</strong> Hold your phone steady · ensure good lighting · capture one page at a time · all pages will be read together
     </div>
     <div class="file-chips" id="fileList"></div>
     <button class="btn btn-generate" id="generateBtn" onclick="generateAll()">✨ Generate Notes + Questions + Question Bank</button>
@@ -541,10 +544,13 @@ a{color:var(--teal);text-decoration:none}
       <div class="fg"><label>Year / Label (optional)</label><input type="text" id="ppLabel" placeholder="e.g. 2023 Board Paper"></div>
     </div>
     <div class="drop-zone" id="ppDropzone" style="border-color:var(--purple)">
-      <input type="file" id="ppFileInput" accept="image/*,.pdf">
-      <div class="dz-icon">📄</div>
-      <div class="dz-label">Drop past paper image or PDF here</div>
-      <div class="dz-sub">Single file · JPG, PNG, WEBP or PDF · up to 20MB</div>
+      <input type="file" id="ppFileInput" accept="image/*,.pdf" capture="environment">
+      <div class="dz-icon">📸</div>
+      <div class="dz-label">Drop or tap to upload past paper</div>
+      <div class="dz-sub">📷 Camera photo or 📄 PDF · AI will transcribe and solve every question</div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-top:.5rem;padding:8px 10px;background:var(--surface);border-radius:6px;border-left:3px solid var(--purple)">
+      💡 For multi-page papers: upload as a single PDF, or photograph each page and combine into one upload
     </div>
     <div id="ppFileName" style="font-size:12px;color:var(--mint);margin-top:.5rem;display:none"></div>
     <button class="btn btn-generate" id="ppBtn" onclick="analyzePaper()" style="background:var(--purple)">🔍 Solve Paper &amp; Generate Similar Questions</button>
@@ -1102,9 +1108,14 @@ async function generateEssay() {
         + '</div>' : '');
 
     document.getElementById('essay-output').style.display = 'block';
-    document.getElementById('essay-output').scrollIntoView({behavior:'smooth'});
+    // Scroll to top of essay page so user can see output
+    document.getElementById('page-essay').scrollTo(0, 0);
+    window.scrollTo(0, document.getElementById('essay-output').getBoundingClientRect().top + window.scrollY - 80);
     showToast('✅ Essay ready!');
-  } catch(e) { showToast(e.message, true); }
+  } catch(e) {
+    console.error('Essay error:', e);
+    showToast(e.message || 'Could not generate essay. Please try again.', true);
+  }
   finally { hideLoader(); btn.disabled=false; btn.textContent='✍️ Generate Essay'; }
 }
 
