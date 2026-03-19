@@ -20,27 +20,26 @@ const upload = multer({
   }
 });
 
-// ── Groq helper ───────────────────────────────────────────────────────────────
-async function callGroq(prompt, maxTokens = 2048) {
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        {
-          role: 'system',
-          content: `You are a senior ICSE/ISC curriculum expert and examiner with 20+ years experience.
+// ── Groq helper with automatic fallback ──────────────────────────────────────
+// Primary: llama-3.3-70b-versatile (100k tokens/day — best quality)
+// Fallback: llama-3.1-8b-instant   (500k tokens/day — kicks in when primary hits limit)
+
+const SYSTEM_PROMPT = `You are a senior ICSE/ISC curriculum expert and examiner with 20+ years experience.
 CRITICAL RULES:
 1. All content MUST strictly follow the ICSE/ISC syllabus — not CBSE, not international.
 2. For Science: always include SI units, scientist names with nationality and year of discovery, step-by-step derivations where applicable, solved numerical examples, and reference to ICSE practical experiments.
 3. For all subjects: use ICSE-specific terminology, examples from ICSE textbooks (Selina, S.Chand, Frank), and exam-pattern questions.
-4. Return ONLY valid JSON or HTML exactly as instructed. No markdown fences, no preamble, no explanation.`
-        },
-        { role: 'user', content: prompt }
+4. Return ONLY valid JSON or HTML exactly as instructed. No markdown fences, no preamble, no explanation.`;
+
+async function groqCall(model, prompt, maxTokens) {
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user',   content: prompt }
       ],
       max_tokens: maxTokens,
       temperature: 0.3
@@ -52,6 +51,19 @@ CRITICAL RULES:
   }
   const data = await response.json();
   return data.choices[0].message.content;
+}
+
+async function callGroq(prompt, maxTokens = 2048) {
+  try {
+    return await groqCall('llama-3.3-70b-versatile', prompt, maxTokens);
+  } catch(e) {
+    const isRateLimit = e.message.includes('rate_limit') || e.message.includes('quota') || e.message.includes('Limit') || e.message.includes('429');
+    if (isRateLimit) {
+      console.log('Primary model rate limited — switching to llama-3.1-8b-instant (500k TPD)');
+      return await groqCall('llama-3.1-8b-instant', prompt, maxTokens);
+    }
+    throw e;
+  }
 }
 
 // ── Safe JSON parse ───────────────────────────────────────────────────────────
