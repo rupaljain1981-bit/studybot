@@ -656,19 +656,16 @@ function buildBankPrompt(grade, subject, topic) {
 }
 
 // ── PAST PAPER ANALYSIS ───────────────────────────────────────────────────────
+// Architecture: Gemini = OCR only (plain text, never fails)
+//               Groq   = solve from text + generate new questions
 async function analyzePastPaper(fileBuffer, mimeType, grade, subject) {
 
-  // Gemini does BOTH reading AND solving — it has a 1M context, no token pressure
-  // Groq only handles generating NEW similar questions (small task, fits in 8b)
-
-  let solvedQuestions = [];
-  let paperAnalysis = {};
-  let transcribed = false;
+  // ── Step 1: Gemini reads the paper as PLAIN TEXT (no JSON, never fails) ──────
+  let transcription = null;
 
   if (process.env.GEMINI_API_KEY) {
     try {
-      // Ask Gemini to read the paper AND solve every question in one shot
-      const solveParts = [
+      const ocrParts = [
         {
           inline_data: {
             mime_type: mimeType === 'application/pdf' ? 'application/pdf' : mimeType,
@@ -676,92 +673,90 @@ async function analyzePastPaper(fileBuffer, mimeType, grade, subject) {
           }
         },
         {
-          text: 'You are an expert ICSE ' + grade + ' ' + subject + ' teacher reading a past question paper image.\n\n'
-            + 'Do TWO things:\n'
-            + '1. ANALYSE the paper: note total marks, sections, topics, question types.\n'
-            + '2. SOLVE every single question with complete model answers:\n'
-            + '   MCQ: correct letter + one-line reason\n'
-            + '   Fill blank: exact answer word(s)\n'
-            + '   Short answer: 2-3 sentence model answer\n'
-            + '   Numerical: Given / Formula / Working / Answer with SI unit\n'
-            + '   Long answer: full structured answer\n\n'
-            + 'CRITICAL OUTPUT RULES:\n'
-            + '- Output ONLY raw JSON — absolutely no markdown, no ```json, no ``` fences\n'
-            + '- No newlines or spaces in the JSON — output as a single compact line\n'
-            + '- Start your response with { and end with }\n\n'
-            + 'Format: {"paperAnalysis":{"totalMarks":80,"sections":["Section A","Section B"],"topicsCovered":["topic1","topic2"],"questionTypes":["MCQ","Short Answer"],"difficultyObservation":"mixed"},"solvedQuestions":[{"qno":"Q1(a)","type":"MCQ","question":"exact text","answer":"B) answer — reason","marks":1,"topic":"topic"},{"qno":"Q1(b)","type":"Short Answer","question":"exact text","answer":"model answer","marks":2,"topic":"topic"}]}\n'
-            + 'Solve ALL questions from the paper. Begin your response with { now.'
+          text: 'You are reading an ICSE ' + grade + ' ' + subject + ' past question paper.\n'
+            + 'Transcribe EVERY question EXACTLY as printed. Include question numbers, marks, all text, all MCQ options.\n'
+            + 'Output plain text only — no JSON, no markdown, no formatting.\n'
+            + 'Just copy the paper exactly as you see it.'
         }
       ];
-
-      const geminiResult = await callGeminiVision(solveParts, 3);
-      console.log('Gemini solve result:', geminiResult ? geminiResult.length : 0, 'chars');
-
-      if (geminiResult) {
-        // Gemini sometimes adds markdown fences or pretty-prints — strip aggressively
-        let cleanResult = geminiResult
-          .replace(/^```[a-zA-Z]*\s*/m, '')
-          .replace(/\s*```\s*$/m, '')
-          .trim();
-        // If still not starting with {, find first {
-        const brace = cleanResult.indexOf('{');
-        if (brace > 0) cleanResult = cleanResult.slice(brace);
-
-        const parsed = safeJSON(cleanResult, null);
-        if (parsed && parsed.solvedQuestions?.length) {
-          solvedQuestions = parsed.solvedQuestions;
-          paperAnalysis   = parsed.paperAnalysis || {};
-          transcribed     = true;
-          console.log('Gemini solved', solvedQuestions.length, 'questions');
-        } else {
-          console.log('Gemini JSON parse failed — falling back to Groq curriculum generation');
-          console.log('Gemini raw first 300 chars:', geminiResult.slice(0,300));
-        }
-      }
+      transcription = await callGeminiVision(ocrParts, 3);
+      console.log('Gemini OCR result:', transcription ? transcription.length + ' chars' : 'failed');
     } catch(err) {
-      console.log('Gemini paper analysis failed:', err.message);
+      console.log('Gemini OCR failed:', err.message);
     }
   }
 
-  // If Gemini failed or key not set — use Groq to generate curriculum-based questions
-  if (!transcribed) {
-    console.log('Generating curriculum-based paper for', grade, subject);
-    const fallbackPrompt = 'Generate 5 ICSE ' + grade + ' ' + subject + ' exam questions with model answers. '
-      + 'Mix MCQ, Short Answer, Long Answer. Output ONLY compact JSON on one line: '
-      + '{"paperAnalysis":{"totalMarks":80,"sections":["Section A","Section B"],"topicsCovered":["' + subject + '"],"questionTypes":["MCQ","Short Answer","Long Answer"],"difficultyObservation":"mixed"},'
-      + '"solvedQuestions":['
-      + '{"qno":"Q1","type":"MCQ","question":"write specific question A) B) C) D)","answer":"B) correct — reason","marks":1,"topic":"' + subject + '"},'
-      + '{"qno":"Q2","type":"Short Answer","question":"write specific question","answer":"write model answer","marks":2,"topic":"' + subject + '"},'
-      + '{"qno":"Q3","type":"Long Answer","question":"write specific question","answer":"write structured answer","marks":5,"topic":"' + subject + '"}'
-      + ']} Output JSON only.';
+  // ── Step 2: Groq solves the transcribed questions (small batches) ─────────────
+  let solvedQuestions = [];
+  let paperAnalysis = {};
 
-    const fallbackRaw = await callGroq(fallbackPrompt, 1200);
-    const fb = safeJSON(fallbackRaw, { paperAnalysis:{}, solvedQuestions:[] });
+  if (transcription) {
+    // First call: analyse the paper structure (tiny, always fits)
+    const analysePrompt = 'A student uploaded this ICSE ' + grade + ' ' + subject + ' paper:\n\n'
+      + transcription.slice(0, 800) + '\n\n'
+      + 'Identify: total marks, section names, topics covered, question types.\n'
+      + 'Output ONLY JSON: {"totalMarks":80,"sections":["A","B"],"topicsCovered":["t1","t2"],"questionTypes":["MCQ","Short"],"difficultyObservation":"mixed"}';
+
+    const analysisRaw = await callGroq(analysePrompt, 400);
+    paperAnalysis = safeJSON(analysisRaw, { totalMarks: 80, sections: [], topicsCovered: [subject], questionTypes: [], difficultyObservation: 'mixed' });
+    console.log('Paper analysis done, topics:', paperAnalysis.topicsCovered);
+
+    await sleep(600);
+
+    // Second call: solve the questions — pass the transcription as context
+    // Keep it tight: 1200 chars of transcription max to fit in 8b tokens
+    const transcSnippet = transcription.slice(0, 1200);
+    const solvePrompt = 'You are an ICSE ' + grade + ' ' + subject + ' teacher.\n'
+      + 'Here are questions from an uploaded exam paper:\n\n'
+      + transcSnippet + '\n\n'
+      + 'Solve each question with a complete model answer.\n'
+      + 'Output ONLY JSON array (no object wrapper):\n'
+      + '[{"qno":"Q1","type":"MCQ","question":"question text","answer":"B) answer — reason","marks":1,"topic":"topic"},'
+      + '{"qno":"Q2","type":"Short Answer","question":"question text","answer":"model answer","marks":2,"topic":"topic"}]\n'
+      + 'Solve every question visible above. Output JSON array only.';
+
+    const solveRaw = await callGroq(solvePrompt, 1800);
+    // Wrap in object if it returned a bare array
+    let solveText = solveRaw.trim();
+    if (solveText.startsWith('[')) solveText = '{"solvedQuestions":' + solveText + '}';
+    const solveData = safeJSON(solveText, { solvedQuestions: [] });
+    solvedQuestions = solveData.solvedQuestions || solveData || [];
+    if (Array.isArray(solveData)) solvedQuestions = solveData;
+    console.log('Groq solved', solvedQuestions.length, 'questions from transcription');
+
+  } else {
+    // No vision — generate curriculum questions
+    console.log('No transcription — generating curriculum paper for', grade, subject);
+    const fallbackPrompt = 'Generate 4 ICSE ' + grade + ' ' + subject + ' exam questions with model answers. '
+      + 'Output JSON: {"totalMarks":80,"sections":["A","B"],"topicsCovered":["' + subject + '"],"questionTypes":["MCQ","Short Answer"],"difficultyObservation":"mixed","solvedQuestions":['
+      + '{"qno":"Q1","type":"MCQ","question":"specific MCQ with A) B) C) D)","answer":"B) correct — reason","marks":1,"topic":"' + subject + '"},'
+      + '{"qno":"Q2","type":"Short Answer","question":"specific 2-mark question","answer":"model answer","marks":2,"topic":"' + subject + '"}'
+      + ']}';
+    const fbRaw = await callGroq(fallbackPrompt, 1000);
+    const fb = safeJSON(fbRaw, {});
+    paperAnalysis   = { totalMarks: fb.totalMarks || 80, sections: fb.sections || [], topicsCovered: fb.topicsCovered || [subject], questionTypes: fb.questionTypes || [], difficultyObservation: fb.difficultyObservation || 'mixed' };
     solvedQuestions = fb.solvedQuestions || [];
-    paperAnalysis   = fb.paperAnalysis  || {};
   }
 
-  // Groq generates NEW similar questions — small focused prompt fits in 8b
-  await sleep(800);
-  const topics = (paperAnalysis.topicsCovered || [subject]).slice(0, 3).join(', ');
-  const genPrompt = 'You are an ICSE ' + grade + ' ' + subject + ' examiner.\n'
-    + 'Generate 8 NEW questions on: ' + topics + '\n'
-    + 'Mix: 2 MCQ, 2 Short Answer, 2 Numerical, 2 Long Answer. Give complete model answers.\n\n'
-    + 'Output ONLY valid JSON:\n'
-    + '{"generatedQuestions":['
-    + '{"type":"MCQ","difficulty":"medium","question":"question with A) B) C) D)","answer":"C) answer — reason","marks":1,"topic":"' + (topics.split(',')[0]?.trim() || subject) + '"},'
-    + '{"type":"Short Answer","difficulty":"medium","question":"2-mark question","answer":"model answer","marks":2,"topic":"topic"},'
-    + '{"type":"Long Answer","difficulty":"hard","question":"5-mark question","answer":"structured answer","marks":5,"topic":"topic"}'
-    + ']}\nOutput JSON only.';
+  // ── Step 3: Generate 8 NEW similar questions (always small, always fits) ──────
+  await sleep(600);
+  const topics = (paperAnalysis.topicsCovered || [subject]).slice(0, 3).join(', ') || subject;
+  const genPrompt = 'Generate 6 NEW ICSE ' + grade + ' ' + subject + ' questions on: ' + topics + '. '
+    + 'Mix MCQ, Short Answer, Numerical, Long Answer. Give model answers. '
+    + 'Output JSON: {"generatedQuestions":['
+    + '{"type":"MCQ","difficulty":"medium","question":"specific question A) B) C) D)","answer":"C) answer — reason","marks":1,"topic":"' + topics.split(',')[0].trim() + '"},'
+    + '{"type":"Short Answer","difficulty":"medium","question":"specific 2-mark question","answer":"model answer","marks":2,"topic":"topic"},'
+    + '{"type":"Long Answer","difficulty":"hard","question":"specific 5-mark question","answer":"structured answer","marks":5,"topic":"topic"}'
+    + ']}';
 
-  const genRaw = await callGroq(genPrompt, 1800);
-  const generated = safeJSON(genRaw, { generatedQuestions:[] });
+  const genRaw = await callGroq(genPrompt, 1500);
+  const generated = safeJSON(genRaw, { generatedQuestions: [] });
 
   return {
     paperAnalysis,
-    solvedQuestions,
+    solvedQuestions: Array.isArray(solvedQuestions) ? solvedQuestions : [],
     generatedQuestions: generated.generatedQuestions || [],
-    transcribed
+    transcribed: !!transcription
   };
 }
 // ── Generate questions ────────────────────────────────────────────────────────
