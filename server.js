@@ -338,86 +338,116 @@ Q1 (5 marks): Explain in detail [main concept in ${topic}]. Include: definition,
 Q2 (6 marks): "Examine the causes and consequences of [event in ${topic}]." Write a structured essay-style answer with introduction, causes (3 points), consequences (3 points), conclusion.
 Q3 (6 marks): Compare and contrast [two related concepts in ${topic}] using a table (5 points), followed by a paragraph explaining which was more significant and why.`;
 
-  const arInstr = type==='humanity'
-    ? `Assertion-Reason for ICSE ${subject}: test understanding of cause-effect, significance, or classification within ${topic}.`
-    : `Assertion-Reason for ICSE ${subject}: test understanding of laws, principles, or properties in ${topic}.`;
+  const arInstr = type === 'humanity'
+    ? 'Assertion-Reason: test cause-effect, significance, or classification within ' + topic + '.'
+    : 'Assertion-Reason: test understanding of laws, principles, or properties in ' + topic + '.';
 
-  const shortInstr = type==='maths' ? mathsShort : type==='science' ? scienceShort : humanityShort;
-  const longInstr  = type==='maths' ? mathsLong  : type==='science' ? scienceLong  : humanityLong;
+  const shortInstr = type === 'maths' ? mathsShort : type === 'science' ? scienceShort : humanityShort;
+  const longInstr  = type === 'maths' ? mathsLong  : type === 'science' ? scienceLong  : humanityLong;
 
-  return `You are an ICSE ${grade} ${subject} examiner setting a board paper for topic: "${topic}"
+  const sa5q = (type === 'science' || type === 'maths')
+    ? 'Numerical word problem: a real-world scenario with specific values and SI units. Calculate a specific quantity.'
+    : 'Give a short account of a specific event or concept in ' + topic + '.';
 
-${arInstr}
+  const sa5a = (type === 'science' || type === 'maths')
+    ? 'Given: list values with units. Formula: write formula. Working: step by step. Answer: value with SI unit.'
+    : 'Complete short account with key facts, dates, and significance.';
 
-${shortInstr}
+  const la2q = (type === 'science' || type === 'maths')
+    ? 'Multi-step word problem or ICSE experiment for ' + topic + '.'
+    : 'Examine the causes and consequences of a key event in ' + topic + '.';
 
-${longInstr}
+  const la3q = (type === 'science' || type === 'maths')
+    ? 'Real-world word problem requiring critical thinking and full working for ' + topic + '.'
+    : 'Compare and contrast two related concepts in ' + topic + ' using a table, followed by a paragraph.';
 
-Write EXACTLY 3 assertion-reason, EXACTLY 5 short-answer, and EXACTLY 3 long-answer questions.
-Every question must be specific to "${topic}" in ICSE ${grade} ${subject}.
-
-For tabular answers write: "Basis | Column A | Column B --- Row1 | val | val --- Row2 | val | val"
-For numericals write full working: "Given: ... Formula: ... Step 1: ... Step 2: ... Answer: value + unit"
-For experiments: "Aim: ... Apparatus: ... Procedure: 1. ... 2. ... 3. ... Observation: ... Result: ..."
-
-Output ONLY a JSON object — no text before or after, no markdown:
-{"assertionreason":[
-{"assertion":"[Specific true ICSE claim about ${topic}]","reason":"[Correct reason]","a":"Both Assertion and Reason are true, and Reason is the correct explanation","explanation":"[Why R explains A]"},
-{"assertion":"[True ICSE claim about ${topic}]","reason":"[Plausible but incorrect reason]","a":"Assertion is true but Reason is false","explanation":"[Correct reason: ...]"},
-{"assertion":"[True ICSE claim about ${topic}]","reason":"[True but unrelated reason]","a":"Both Assertion and Reason are true, but Reason is NOT the correct explanation","explanation":"[What actually explains A]"}
-],"shortanswer":[
-{"q":"[Short answer Q1 as per ICSE pattern above]","a":"[Complete model answer]","marks":2},
-{"q":"[Short answer Q2]","a":"[Complete model answer]","marks":2},
-{"q":"[Short answer Q3 — experiment/proof/significance]","a":"[Complete model answer]","marks":2},
-{"q":"[Short answer Q4 — distinguish/compare in tabular form]","a":"[Table: Basis | A | B --- row1 --- row2 --- row3]","marks":3},
-{"q":"[Short answer Q5 — ${type==='maths'||type==='science'?'numerical word problem with given values':'give a short account or explanation'}]","a":"[${type==='maths'||type==='science'?'Given: ... Formula: ... Working: ... Answer: value + unit':'Complete answer']"}","marks":3}
-],"longanswer":[
-{"q":"[Long answer Q1 as per ICSE pattern above]","a":"[Complete detailed model answer]","marks":5},
-{"q":"[Long answer Q2 — ${type==='maths'||type==='science'?'multi-step word problem or experiment':'examine causes and effects or structured essay'}]","a":"[Complete model answer with all steps/parts]","marks":6},
-{"q":"[Long answer Q3 — ${type==='maths'||type==='science'?'real-world word problem requiring critical thinking':'compare and contrast with table plus paragraph'}]","a":"[Complete model answer]","marks":6}
-]}
-Write the actual questions now — all specific to "${topic}" for ICSE ${grade} ${subject}. Output JSON only.`;
+  return 'You are an ICSE ' + grade + ' ' + subject + ' examiner setting a board paper for topic: "' + topic + '"\n\n'
+    + arInstr + '\n\n'
+    + shortInstr + '\n\n'
+    + longInstr + '\n\n'
+    + 'Write EXACTLY 3 assertion-reason, EXACTLY 5 short-answer, and EXACTLY 3 long-answer questions.\n'
+    + 'Every question must be specific to "' + topic + '" in ICSE ' + grade + ' ' + subject + '.\n\n'
+    + 'For tabular answers write: "Basis | Column A | Column B --- Row1 | val | val --- Row2 | val | val"\n'
+    + 'For numericals: "Given: ... Formula: ... Step 1: ... Step 2: ... Answer: value + unit"\n'
+    + 'For experiments: "Aim: ... Apparatus: ... Procedure: 1...2...3... Observation: ... Result: ..."\n\n'
+    + 'Output ONLY a JSON object — no text before or after, no markdown:\n'
+    + '{"assertionreason":['
+    + '{"assertion":"[Specific true ICSE claim about ' + topic + ']","reason":"[Correct reason]","a":"Both Assertion and Reason are true, and Reason is the correct explanation","explanation":"[Why R explains A]"},'
+    + '{"assertion":"[True ICSE claim about ' + topic + ']","reason":"[Plausible but incorrect reason]","a":"Assertion is true but Reason is false","explanation":"[Correct reason]"},'
+    + '{"assertion":"[True ICSE claim about ' + topic + ']","reason":"[True but unrelated reason]","a":"Both Assertion and Reason are true, but Reason is NOT the correct explanation","explanation":"[What actually explains A]"}'
+    + '],"shortanswer":['
+    + '{"q":"[Short answer Q1 as per ICSE pattern above]","a":"[Complete model answer]","marks":2},'
+    + '{"q":"[Short answer Q2]","a":"[Complete model answer]","marks":2},'
+    + '{"q":"[Short answer Q3 — experiment aim and precaution OR significance]","a":"[Complete model answer]","marks":2},'
+    + '{"q":"[Short answer Q4 — distinguish on three bases in tabular form]","a":"[Table: Basis | A | B --- row1 --- row2 --- row3]","marks":3},'
+    + '{"q":"[' + sa5q + ']","a":"[' + sa5a + ']","marks":3}'
+    + '],"longanswer":['
+    + '{"q":"[Long answer Q1 as per ICSE pattern above]","a":"[Complete detailed model answer]","marks":5},'
+    + '{"q":"[' + la2q + ']","a":"[Complete model answer with all steps and parts]","marks":6},'
+    + '{"q":"[' + la3q + ']","a":"[Complete model answer]","marks":6}'
+    + ']}\n'
+    + 'Write the actual questions now — all specific to "' + topic + '" for ICSE ' + grade + ' ' + subject + '. Output JSON only.';
 }
 
 // ── BANK PROMPT ───────────────────────────────────────────────────────────────
 function buildBankPrompt(grade, subject, topic) {
   const type = subjectType(subject);
 
-  const scienceNote = `Include: 2 numericals, 1 derivation question, 1 experiment question, questions on SI units and scientist names.`;
-  const mathsNote   = `Include: at least 5 word problems requiring full working, 2 proof questions, questions with multiple steps.`;
-  const humanityNote = `Include: 2 source-based questions, date/event questions, cause-effect questions, significance questions, comparison questions. NO vague generic questions.`;
+  const subjectNote = type === 'science'
+    ? 'Include: 2 numericals with full working, 1 derivation question, 1 experiment question, questions on SI units and scientist names.'
+    : type === 'maths'
+    ? 'Include: at least 5 word problems requiring full working, 2 proof questions, multi-step problems.'
+    : 'Include: 2 source-based questions, date and event questions, cause-effect questions, significance questions, comparison questions. NO vague generic questions.';
 
-  const subjectNote = type==='science' ? scienceNote : type==='maths' ? mathsNote : humanityNote;
+  const saDefine   = type === 'science' ? 'Define [key term] and state its SI unit.' : 'Define or give the meaning of [key term from ' + topic + '].';
+  const saLaw      = type === 'humanity' ? 'State any two causes or effects of [aspect of ' + topic + '].' : 'State [law or theorem] and write its mathematical expression.';
+  const saExpt     = type === 'humanity' ? 'What was the significance of [event or person] in ' + topic + '?' : 'In the ICSE experiment on ' + topic + ', state the aim and one precaution.';
+  const saNum      = (type === 'maths' || type === 'science') ? 'Numerical: [real-world scenario with values and SI units related to ' + topic + ']. Calculate [quantity]. Show full working.' : 'Give a short account of [specific event or concept in ' + topic + '].';
+  const saNumAns   = (type === 'maths' || type === 'science') ? 'Given: values. Formula: formula. Working: steps. Answer: value + SI unit.' : 'Complete short account with key facts and significance.';
 
-  return `You are an ICSE ${grade} ${subject} board examiner. Topic: "${topic}"
-${subjectNote}
+  const la1q = type === 'humanity'
+    ? 'Examine the causes and consequences of [major event in ' + topic + ']. Give a structured answer.'
+    : 'Describe the ICSE experiment to study ' + topic + '. Include aim, apparatus, procedure, observation and result.';
 
-Generate 20 board-exam quality questions strictly based on ICSE ${grade} ${subject} syllabus for "${topic}".
-Mix all question types. Questions must be specific, meaningful, and exam-worthy.
+  const la2q = (type === 'maths' || type === 'science')
+    ? 'Word problem: [real-world scenario involving ' + topic + ' with specific values]. Find two quantities. Show complete working for each.'
+    : 'Compare [concept A] and [concept B] in ' + topic + ' using a table with five points of difference.';
 
-Output ONLY valid JSON — no markdown:
-{"subject":"${subject}","topic":"${topic}","grade":"${grade}","questions":[
-{"type":"MCQ","difficulty":"easy","question":"[Specific MCQ with A) B) C) D) options]","answer":"[Correct option]","marks":1},
-{"type":"MCQ","difficulty":"medium","question":"[${type==='science'||type==='maths'?'Calculation-based MCQ':'Specific knowledge MCQ'}]","answer":"[answer]","marks":1},
-{"type":"Fill in the Blank","difficulty":"easy","question":"[Sentence with ___ blank]","answer":"[word]","marks":1},
-{"type":"Fill in the Blank","difficulty":"medium","question":"[Sentence with ___ and ___ blanks]","answer":"[word1 / word2]","marks":1},
-{"type":"True or False","difficulty":"easy","question":"[Specific factual statement]","answer":"True","marks":1},
-{"type":"True or False","difficulty":"medium","question":"[Subtle misconception statement]","answer":"False — correct answer: [what is correct]","marks":1},
-{"type":"Odd One Out","difficulty":"medium","question":"A) [item]  B) [item]  C) [item]  D) [item]","answer":"[Letter) item — reason]","marks":1},
-{"type":"Odd One Out","difficulty":"medium","question":"A) [item]  B) [item]  C) [item]  D) [item]","answer":"[answer]","marks":1},
-{"type":"Assertion-Reason","difficulty":"medium","question":"Assertion: [claim]. Reason: [correct reason].","answer":"Both true, Reason explains Assertion","marks":2},
-{"type":"Assertion-Reason","difficulty":"hard","question":"Assertion: [claim]. Reason: [wrong reason].","answer":"Assertion true, Reason false","marks":2},
-{"type":"Short Answer","difficulty":"easy","question":"Define [key term] and state its ${type==='science'?'SI unit':'significance'}.","answer":"[Complete answer]","marks":2},
-{"type":"Short Answer","difficulty":"medium","question":"${type==='humanity'?'State two causes of [event in '+topic+'].':'State [law] and write its mathematical expression.'}","answer":"[Complete answer]","marks":2},
-{"type":"Short Answer","difficulty":"medium","question":"Distinguish between [A] and [B] in ${topic} on two bases.","answer":"Basis | A | B --- Point 1 | ... | ... --- Point 2 | ... | ...","marks":2},
-{"type":"Short Answer","difficulty":"medium","question":"${type==='humanity'?'What was the significance of [event/person/act] in '+topic+'?':'In the ICSE experiment on '+topic+', state the aim and one precaution.'}","answer":"[Complete answer]","marks":2},
-{"type":"Short Answer","difficulty":"hard","question":"${type==='maths'||type==='science'?'Numerical: [scenario with specific values and SI units]. Calculate [quantity].':'Give a short account of [specific concept in '+topic+'].'}","answer":"${type==='maths'||type==='science'?'Given: ... Formula: ... Working: ... Answer: value + unit':'Complete answer'}","marks":3},
-{"type":"Long Answer","difficulty":"hard","question":"${type==='humanity'?'Examine the causes and consequences of [event in '+topic+'].':'Describe the ICSE experiment to '+topic+'. Include aim, apparatus, procedure, observation and result.'}","answer":"[Full model answer]","marks":5},
-{"type":"Long Answer","difficulty":"hard","question":"${type==='maths'||type==='science'?'Word problem: [real-world scenario involving '+topic+' with given values]. Find [two quantities]. Show complete working.':'Compare [concept A] and [concept B] in '+topic+' using a table with 5 points.'}","answer":"[Full model answer]","marks":5},
-{"type":"Long Answer","difficulty":"hard","question":"${type==='humanity'?'Write a structured essay on [main theme of '+topic+']. Include: introduction, three main points with examples, and a conclusion.':'With a labelled diagram, explain [main mechanism in '+topic+']. Derive the key formula and solve one numerical.'}","answer":"[Full model answer]","marks":6},
-{"type":"Long Answer","difficulty":"hard","question":"[A critical thinking or application question specific to ${topic} at ICSE ${grade} level]","answer":"[Complete model answer]","marks":6}
-]}
-Replace ALL placeholders with real specific content about "${topic}". Output JSON only.`;
+  const la3q = type === 'humanity'
+    ? 'Write a structured essay on [main theme of ' + topic + ']. Include: introduction, three main points with examples, and conclusion.'
+    : 'With a labelled diagram, explain [main mechanism in ' + topic + ']. Derive the key formula step by step and solve one numerical.';
+
+  const mcq2 = (type === 'science' || type === 'maths')
+    ? 'Calculation-based MCQ — student must compute a value, with A) B) C) D) options'
+    : 'Specific knowledge MCQ about a key fact, date, or term in ' + topic;
+
+  return 'You are an ICSE ' + grade + ' ' + subject + ' board examiner. Topic: "' + topic + '"\n'
+    + subjectNote + '\n\n'
+    + 'Generate 20 board-exam quality questions strictly based on ICSE ' + grade + ' ' + subject + ' syllabus for "' + topic + '".\n'
+    + 'Mix all question types. Every question must be specific and exam-worthy.\n\n'
+    + 'Output ONLY valid JSON — no markdown:\n'
+    + '{"subject":"' + subject + '","topic":"' + topic + '","grade":"' + grade + '","questions":[\n'
+    + '{"type":"MCQ","difficulty":"easy","question":"[Specific MCQ with A) B) C) D) options about ' + topic + ']","answer":"[Correct option]","marks":1},\n'
+    + '{"type":"MCQ","difficulty":"medium","question":"[' + mcq2 + ']","answer":"[answer]","marks":1},\n'
+    + '{"type":"Fill in the Blank","difficulty":"easy","question":"[Sentence about ' + topic + ' with ___ blank]","answer":"[word]","marks":1},\n'
+    + '{"type":"Fill in the Blank","difficulty":"medium","question":"[Sentence with ___ and ___ two blanks about ' + topic + ']","answer":"[word1 / word2]","marks":1},\n'
+    + '{"type":"True or False","difficulty":"easy","question":"[True factual statement about ' + topic + ']","answer":"True","marks":1},\n'
+    + '{"type":"True or False","difficulty":"medium","question":"[Common misconception about ' + topic + ']","answer":"False — correct answer: [what is correct]","marks":1},\n'
+    + '{"type":"Odd One Out","difficulty":"medium","question":"A) [item]  B) [item]  C) [item]  D) [item]","answer":"[Letter) item — reason]","marks":1},\n'
+    + '{"type":"Odd One Out","difficulty":"medium","question":"A) [item]  B) [item]  C) [item]  D) [item]","answer":"[answer — reason]","marks":1},\n'
+    + '{"type":"Assertion-Reason","difficulty":"medium","question":"Assertion: [true claim about ' + topic + ']. Reason: [correct reason].","answer":"Both true, Reason explains Assertion","marks":2},\n'
+    + '{"type":"Assertion-Reason","difficulty":"hard","question":"Assertion: [true claim about ' + topic + ']. Reason: [wrong reason].","answer":"Assertion true, Reason false — correct reason: [reason]","marks":2},\n'
+    + '{"type":"Short Answer","difficulty":"easy","question":"' + saDefine + '","answer":"[Complete ICSE answer]","marks":2},\n'
+    + '{"type":"Short Answer","difficulty":"medium","question":"' + saLaw + '","answer":"[Complete answer]","marks":2},\n'
+    + '{"type":"Short Answer","difficulty":"medium","question":"Distinguish between [A] and [B] in ' + topic + ' on two bases.","answer":"Basis | A | B --- Point 1 | val | val --- Point 2 | val | val","marks":2},\n'
+    + '{"type":"Short Answer","difficulty":"medium","question":"' + saExpt + '","answer":"[Complete answer]","marks":2},\n'
+    + '{"type":"Short Answer","difficulty":"hard","question":"' + saNum + '","answer":"' + saNumAns + '","marks":3},\n'
+    + '{"type":"Long Answer","difficulty":"hard","question":"' + la1q + '","answer":"[Full model answer]","marks":5},\n'
+    + '{"type":"Long Answer","difficulty":"hard","question":"' + la2q + '","answer":"[Full model answer]","marks":5},\n'
+    + '{"type":"Long Answer","difficulty":"hard","question":"' + la3q + '","answer":"[Full model answer]","marks":6},\n'
+    + '{"type":"Long Answer","difficulty":"hard","question":"[A critical thinking question specific to ' + topic + ' at ICSE ' + grade + ' level]","answer":"[Complete model answer]","marks":6}\n'
+    + ']}\n'
+    + 'Replace ALL placeholders with real specific content about "' + topic + '". Output JSON only.';
 }
 
 // ── PAST PAPER ANALYSIS ───────────────────────────────────────────────────────
