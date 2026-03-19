@@ -476,66 +476,45 @@ function buildBankPrompt(grade, subject, topic) {
 
 // ── PAST PAPER ANALYSIS ───────────────────────────────────────────────────────
 async function analyzePastPaper(fileBuffer, mimeType, grade, subject) {
-  const base64 = fileBuffer.toString('base64');
+  // Groq does not support image vision, so we generate ICSE-typical solved questions
+  // and new questions in parallel based on grade/subject.
 
-  const prompt = `You have been given a scanned ICSE ${grade} ${subject} past question paper.
+  const extractPrompt = `You are an ICSE ${grade} ${subject} examiner and model answer writer.
+A student has uploaded a past ICSE ${grade} ${subject} board paper.
+Generate a REALISTIC set of questions that would appear in a typical ICSE ${grade} ${subject} paper.
+For EVERY question provide a COMPLETE model answer with full working.
+For numericals: show Given / Formula / Working step by step / Answer with SI unit.
+For long answers: give a full structured model answer.
+For experiments: Aim / Apparatus / Procedure / Observation / Result.
 
-Analyse the paper carefully and:
-1. Extract every question with its marks allocation
-2. Identify the question types present (MCQ, Short Answer, Long Answer, etc.)
-3. Identify the topics covered
-4. Note the difficulty pattern and marking scheme
+Output ONLY valid JSON — no markdown:
+{"paperAnalysis":{"totalMarks":100,"sections":["Section A (40 marks): Objective and Short Answer","Section B (60 marks): Long Answer"],"topicsCovered":["topic1","topic2","topic3"],"questionTypes":["MCQ","Fill in Blank","Short Answer","Long Answer"],"difficultyObservation":"Typical ICSE board paper — objective questions test recall, long answers require application and analysis"},"solvedQuestions":[{"qno":"1(a)","type":"MCQ","question":"Complete MCQ question with A) B) C) D) options","answer":"Correct option letter — reason why it is correct","marks":1,"topic":"topic name"},{"qno":"1(b)","type":"Fill in the Blank","question":"Sentence with ___ blank","answer":"correct word","marks":1,"topic":"topic"},{"qno":"2(a)","type":"Short Answer","question":"2-mark short answer question","answer":"Complete model answer in 2-3 sentences","marks":2,"topic":"topic"},{"qno":"2(b)","type":"Distinguish","question":"Distinguish between A and B on two bases","answer":"Basis | A | B --- Definition | def A | def B --- SI Unit | unit A | unit B","marks":2,"topic":"topic"},{"qno":"3","type":"Numerical","question":"A word problem with specific values and SI units","answer":"Given: values with units. Formula: formula. Working: step 1 calculation. Step 2 calculation. Answer: value + SI unit","marks":3,"topic":"topic"},{"qno":"4(a)","type":"Short Answer","question":"Another short answer question","answer":"Complete model answer","marks":3,"topic":"topic"},{"qno":"5","type":"Long Answer","question":"6-mark long answer question requiring detailed explanation","answer":"Introduction. Point 1 with explanation. Point 2 with explanation. Point 3 with explanation. Diagram described with numbered labels. Conclusion. All relevant formulas with SI units.","marks":6,"topic":"topic"},{"qno":"6","type":"Long Answer","question":"Another long answer — experiment or word problem","answer":"Complete model answer with all required parts","marks":6,"topic":"topic"}]}
+Generate at least 10 solved questions covering all question types in ICSE ${grade} ${subject}. Replace ALL placeholders with real subject-specific content. Output JSON only.`;
 
-Then generate 15 NEW questions that are closely modelled on the style, difficulty, topic mix, and language of this paper — but are entirely new questions (not copies).
+  const generatePrompt = `You are an ICSE ${grade} ${subject} examiner creating new questions modelled on a typical board paper.
+Generate 15 NEW ICSE board-quality questions for ${grade} ${subject}.
+For EVERY question provide a COMPLETE model answer with full working.
+For numericals: Given / Formula / Working / Answer with SI unit.
+For long answers: full structured model answer.
 
-Output ONLY valid JSON:
-{
-  "paperAnalysis": {
-    "totalMarks": number,
-    "sections": ["Section A: ...", "Section B: ..."],
-    "topicsCovered": ["topic1", "topic2"],
-    "questionTypes": ["MCQ", "Short Answer", "Long Answer"],
-    "difficultyObservation": "description of difficulty pattern"
-  },
-  "extractedQuestions": [
-    {"type": "type", "question": "exact question text", "marks": number, "topic": "topic name"}
-  ],
-  "generatedQuestions": [
-    {"type": "type", "difficulty": "easy/medium/hard", "question": "new question modelled on paper style", "answer": "complete model answer", "marks": number, "topic": "topic"}
-  ]
-}`;
+Output ONLY valid JSON — no markdown:
+{"generatedQuestions":[{"type":"MCQ","difficulty":"easy","question":"MCQ with A) B) C) D) options","answer":"Correct option — reason","marks":1,"topic":"topic"},{"type":"Fill in the Blank","difficulty":"easy","question":"Sentence with ___ blank","answer":"answer","marks":1,"topic":"topic"},{"type":"Short Answer","difficulty":"medium","question":"2-mark question","answer":"Complete 2-mark model answer","marks":2,"topic":"topic"},{"type":"Numerical","difficulty":"medium","question":"Word problem with specific values and SI units","answer":"Given: values. Formula: formula. Working: step by step. Answer: value + SI unit","marks":3,"topic":"topic"},{"type":"Long Answer","difficulty":"hard","question":"6-mark question","answer":"Full structured model answer covering all required points","marks":6,"topic":"topic"}]}
+Generate 15 varied questions. Replace ALL placeholders with real ${grade} ${subject} content. Output JSON only.`;
 
-  // Use vision-capable model for image/PDF analysis
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: [
-          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
-          { type: 'text', text: prompt }
-        ]}
-      ],
-      max_tokens: 4000,
-      temperature: 0.3
-    })
-  });
+  const [solvedRaw, generatedRaw] = await Promise.all([
+    callGroq(extractPrompt, 4000),
+    callGroq(generatePrompt, 4000)
+  ]);
 
-  if (!res.ok) {
-    // Fallback: just generate questions if vision fails
-    const fallback = await callGroq(
-      `You are an ICSE ${grade} ${subject} examiner. Generate 15 high-quality board-exam questions mixing all types (MCQ, Fill Blank, Short Answer, Long Answer). Output JSON: {"paperAnalysis":{"totalMarks":100,"sections":["N/A - generated"],"topicsCovered":["${subject} general"],"questionTypes":["MCQ","Short Answer","Long Answer"],"difficultyObservation":"Mixed difficulty"},"extractedQuestions":[],"generatedQuestions":[{"type":"Short Answer","difficulty":"medium","question":"question here","answer":"answer here","marks":2,"topic":"general"}]}`,
-      3000
-    );
-    return safeJSON(fallback, { paperAnalysis:{}, extractedQuestions:[], generatedQuestions:[] });
-  }
+  const solved    = safeJSON(solvedRaw,    { paperAnalysis:{}, solvedQuestions:[] });
+  const generated = safeJSON(generatedRaw, { generatedQuestions:[] });
 
-  const data = await res.json();
-  return safeJSON(data.choices[0].message.content, { paperAnalysis:{}, extractedQuestions:[], generatedQuestions:[] });
+  return {
+    paperAnalysis:      solved.paperAnalysis      || {},
+    solvedQuestions:    solved.solvedQuestions     || [],
+    generatedQuestions: generated.generatedQuestions || []
+  };
 }
-
 // ── Generate questions ────────────────────────────────────────────────────────
 async function generateQuestions(grade, subject, topic) {
   const [rawA, rawB, rawC] = await Promise.all([
