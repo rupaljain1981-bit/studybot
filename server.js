@@ -169,17 +169,30 @@ function isRateLimit(msg) {
          msg.includes('exceeded') || msg.includes('try again in');
 }
 
+// Track which model is active so callers can adapt
+let usingFallback = false;
+
 async function callGroq(prompt, maxTokens = 2048) {
-  try {
-    return await groqCall('llama-3.3-70b-versatile', prompt, maxTokens);
-  } catch(e) {
-    if (!isRateLimit(e.message)) throw e;
-    console.log('70b rate limited -- switching to llama-3.1-8b-instant');
+  // When using 8b fallback, cap tokens to stay under 6000 TPM budget
+  const effectiveTokens = usingFallback ? Math.min(maxTokens, 1800) : maxTokens;
+
+  if (!usingFallback) {
+    try {
+      const result = await groqCall('llama-3.3-70b-versatile', prompt, effectiveTokens);
+      return result;
+    } catch(e) {
+      if (!isRateLimit(e.message)) throw e;
+      console.log('70b rate limited -- switching to llama-3.1-8b-instant');
+      usingFallback = true;
+      // Reset after 15 minutes
+      setTimeout(() => { usingFallback = false; console.log('Retrying 70b model'); }, 15 * 60 * 1000);
+    }
   }
 
+  const fallbackTokens = Math.min(maxTokens, 1800);
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      return await groqCall('llama-3.1-8b-instant', prompt, maxTokens);
+      return await groqCall('llama-3.1-8b-instant', prompt, fallbackTokens);
     } catch(e) {
       if (isRateLimit(e.message) && attempt < 3) {
         const wait = retryAfterMs(e.message);
@@ -194,11 +207,27 @@ async function callGroq(prompt, maxTokens = 2048) {
 function safeJSON(raw, fallback = {}) {
   try {
     const cleaned = raw.replace(/```json|```/g,'').trim();
-    const s = cleaned.indexOf('{'), e = cleaned.lastIndexOf('}');
-    if (s===-1||e===-1) throw new Error('No JSON found');
-    return JSON.parse(cleaned.slice(s, e+1));
+    const s = cleaned.indexOf('{');
+    if (s === -1) throw new Error('No JSON found');
+    // Find last valid } — handle truncated JSON by trying progressively shorter slices
+    let text = cleaned.slice(s);
+    // Try full parse first
+    try { return JSON.parse(text); } catch(_) {}
+    // If truncated, try finding the last complete top-level object
+    const e = text.lastIndexOf('}');
+    if (e > 0) {
+      try { return JSON.parse(text.slice(0, e+1)); } catch(_) {}
+    }
+    // Last resort: try to close truncated arrays/objects
+    const openBrackets = (text.match(/\[/g)||[]).length - (text.match(/\]/g)||[]).length;
+    const openBraces   = (text.match(/\{/g)||[]).length - (text.match(/\}/g)||[]).length;
+    let fixed = text.replace(/,\s*$/, ''); // remove trailing comma
+    for (let i = 0; i < openBrackets; i++) fixed += ']';
+    for (let i = 0; i < openBraces; i++) fixed += '}';
+    try { return JSON.parse(fixed); } catch(_) {}
+    throw new Error('Could not parse JSON even after repair');
   } catch(e) {
-    console.error('JSON parse failed:', e.message, '\nRaw:', raw.slice(0,300));
+    console.error('JSON parse failed:', e.message, '\nRaw preview:', raw.slice(0,200));
     return fallback;
   }
 }
@@ -623,40 +652,56 @@ Format exactly like the original paper. Do NOT answer anything — only transcri
     ? `Here is the EXACT transcription of the uploaded past paper:\n\n${transcription}\n\n`
     : `Generate a typical ICSE ${grade} ${subject} board paper with realistic questions.\n\n`;
 
-  const extractPrompt = `You are an ICSE ${grade} ${subject} examiner and model answer writer.
+  // ── Step 2: Solve the paper (sequentially to avoid TPM limits on 8b fallback)
+  const solveAction = transcription
+    ? 'Here is the EXACT transcription of the uploaded paper. Solve EVERY question with complete model answers.'
+    : 'Generate a realistic ICSE ' + grade + ' ' + subject + ' board paper and solve every question.';
 
-${paperContext}${transcription ? 'Solve EVERY question from the transcribed paper above with complete model answers.' : 'Generate a REALISTIC set of questions'} that would appear in a typical ICSE ${grade} ${subject} paper.
-For EVERY question provide a COMPLETE model answer with full working.
-For numericals: show Given / Formula / Working step by step / Answer with SI unit.
-For long answers: give a full structured model answer.
-For experiments: Aim / Apparatus / Procedure / Observation / Result.
+  const extractPrompt = 'You are an ICSE ' + grade + ' ' + subject + ' examiner and model answer writer.\n\n'
+    + paperContext
+    + solveAction + '\n\n'
+    + 'For each question provide:\n'
+    + '- MCQ: correct option letter + one-line reason\n'
+    + '- Fill blank: the answer word(s)\n'
+    + '- Short answer: 2-3 sentence model answer\n'
+    + '- Numerical: Given / Formula / Working / Answer with SI unit\n'
+    + '- Long answer: structured answer with all key points\n\n'
+    + 'Output ONLY valid JSON — start with { and end with }:\n'
+    + '{"paperAnalysis":{"totalMarks":80,"sections":["Section A","Section B"],"topicsCovered":["topic1","topic2"],"questionTypes":["MCQ","Short Answer","Long Answer"],"difficultyObservation":"mixed"},'
+    + '"solvedQuestions":['
+    + '{"qno":"1(a)","type":"MCQ","question":"actual question","answer":"B) answer — reason","marks":1,"topic":"topic"},'
+    + '{"qno":"1(b)","type":"Short Answer","question":"actual question","answer":"model answer","marks":2,"topic":"topic"}'
+    + ']}\nReplace ALL placeholders with real content. Output JSON only.';
 
-Output ONLY valid JSON — no markdown:
-{"paperAnalysis":{"totalMarks":100,"sections":["Section A (40 marks): Objective and Short Answer","Section B (60 marks): Long Answer"],"topicsCovered":["topic1","topic2","topic3"],"questionTypes":["MCQ","Fill in Blank","Short Answer","Long Answer"],"difficultyObservation":"Typical ICSE board paper — objective questions test recall, long answers require application and analysis"},"solvedQuestions":[{"qno":"1(a)","type":"MCQ","question":"Complete MCQ question with A) B) C) D) options","answer":"Correct option letter — reason why it is correct","marks":1,"topic":"topic name"},{"qno":"1(b)","type":"Fill in the Blank","question":"Sentence with ___ blank","answer":"correct word","marks":1,"topic":"topic"},{"qno":"2(a)","type":"Short Answer","question":"2-mark short answer question","answer":"Complete model answer in 2-3 sentences","marks":2,"topic":"topic"},{"qno":"2(b)","type":"Distinguish","question":"Distinguish between A and B on two bases","answer":"Basis | A | B --- Definition | def A | def B --- SI Unit | unit A | unit B","marks":2,"topic":"topic"},{"qno":"3","type":"Numerical","question":"A word problem with specific values and SI units","answer":"Given: values with units. Formula: formula. Working: step 1 calculation. Step 2 calculation. Answer: value + SI unit","marks":3,"topic":"topic"},{"qno":"4(a)","type":"Short Answer","question":"Another short answer question","answer":"Complete model answer","marks":3,"topic":"topic"},{"qno":"5","type":"Long Answer","question":"6-mark long answer question requiring detailed explanation","answer":"Introduction. Point 1 with explanation. Point 2 with explanation. Point 3 with explanation. Diagram described with numbered labels. Conclusion. All relevant formulas with SI units.","marks":6,"topic":"topic"},{"qno":"6","type":"Long Answer","question":"Another long answer — experiment or word problem","answer":"Complete model answer with all required parts","marks":6,"topic":"topic"}]}
-Generate at least 10 solved questions covering all question types in ICSE ${grade} ${subject}. Replace ALL placeholders with real subject-specific content. Output JSON only.`;
+  // Run sequentially — avoid both hitting 8b TPM limit at the same time
+  const solvedRaw = await callGroq(extractPrompt, 5000);
+  const solved = safeJSON(solvedRaw, { paperAnalysis:{}, solvedQuestions:[] });
+  console.log('Solved questions parsed:', solved.solvedQuestions?.length || 0);
 
-  const generatePrompt = `You are an ICSE ${grade} ${subject} examiner creating new questions modelled on a typical board paper.
-Generate 15 NEW ICSE board-quality questions for ${grade} ${subject}.
-For EVERY question provide a COMPLETE model answer with full working.
-For numericals: Given / Formula / Working / Answer with SI unit.
-For long answers: full structured model answer.
+  // Small delay before second call to avoid TPM spike
+  await sleep(1000);
 
-Output ONLY valid JSON — no markdown:
-{"generatedQuestions":[{"type":"MCQ","difficulty":"easy","question":"MCQ with A) B) C) D) options","answer":"Correct option — reason","marks":1,"topic":"topic"},{"type":"Fill in the Blank","difficulty":"easy","question":"Sentence with ___ blank","answer":"answer","marks":1,"topic":"topic"},{"type":"Short Answer","difficulty":"medium","question":"2-mark question","answer":"Complete 2-mark model answer","marks":2,"topic":"topic"},{"type":"Numerical","difficulty":"medium","question":"Word problem with specific values and SI units","answer":"Given: values. Formula: formula. Working: step by step. Answer: value + SI unit","marks":3,"topic":"topic"},{"type":"Long Answer","difficulty":"hard","question":"6-mark question","answer":"Full structured model answer covering all required points","marks":6,"topic":"topic"}]}
-Generate 15 varied questions. Replace ALL placeholders with real ${grade} ${subject} content. Output JSON only.`;
+  const topics = (solved.paperAnalysis?.topicsCovered || [subject]).join(', ');
+  const generatePrompt = 'You are an ICSE ' + grade + ' ' + subject + ' examiner.\n'
+    + 'Generate 10 NEW exam-quality questions on these topics: ' + topics + '\n'
+    + 'Mix types: MCQ, Fill in Blank, Short Answer, Numerical, Long Answer.\n'
+    + 'For every question give a complete model answer.\n\n'
+    + 'Output ONLY valid JSON:\n'
+    + '{"generatedQuestions":['
+    + '{"type":"MCQ","difficulty":"easy","question":"specific question with A) B) C) D)","answer":"B) answer — reason","marks":1,"topic":"topic"},'
+    + '{"type":"Short Answer","difficulty":"medium","question":"specific question","answer":"complete model answer","marks":2,"topic":"topic"},'
+    + '{"type":"Numerical","difficulty":"medium","question":"word problem with values","answer":"Given:... Formula:... Working:... Answer: value + unit","marks":3,"topic":"topic"},'
+    + '{"type":"Long Answer","difficulty":"hard","question":"specific 5-mark question","answer":"full structured answer","marks":5,"topic":"topic"}'
+    + ']}\nGenerate all 10 questions. Output JSON only.';
 
-  const [solvedRaw, generatedRaw] = await Promise.all([
-    callGroq(extractPrompt, 4000),
-    callGroq(generatePrompt, 4000)
-  ]);
-
-  const solved    = safeJSON(solvedRaw,    { paperAnalysis:{}, solvedQuestions:[] });
+  const generatedRaw = await callGroq(generatePrompt, 3500);
   const generated = safeJSON(generatedRaw, { generatedQuestions:[] });
 
   return {
-    paperAnalysis:      solved.paperAnalysis      || {},
-    solvedQuestions:    solved.solvedQuestions     || [],
-    generatedQuestions: generated.generatedQuestions || []
+    paperAnalysis:      solved.paperAnalysis       || {},
+    solvedQuestions:    solved.solvedQuestions      || [],
+    generatedQuestions: generated.generatedQuestions || [],
+    transcribed: !!transcription
   };
 }
 // ── Generate questions ────────────────────────────────────────────────────────
@@ -853,58 +898,45 @@ app.post('/api/generate-mnemonics', async (req, res) => {
     const { grade, subject, topic, items } = req.body;
     if (!topic) return res.status(400).json({ error: 'Topic is required.' });
 
-    const prompt = `You are a creative ICSE memory coach helping ${grade} ${subject} students remember difficult content.
+    const context = `ICSE ${grade} ${subject} — Topic: "${topic}"${items ? '\nItems to remember: ' + items : ''}`;
 
-Topic: "${topic}"
-Grade: ${grade}
-Subject: ${subject}
-${items ? 'Specific items to remember: ' + items : ''}
+    // ── Call 1: Acronyms + Memory Story + Rhyme (smaller, faster) ──────────────
+    const prompt1 = `You are a fun ICSE memory coach. ${context}
 
-Create a comprehensive set of memory aids for this topic. Make them fun, visual, and memorable for school students.
+Create memory aids. Output ONLY valid JSON:
+{"mnemonics":[{"type":"acronym","title":"Name of mnemonic","content":"LETTERS","expansion":"Each Letter Stands For Something","example":"e.g. VIBGYOR for rainbow","items":["item1","item2","item3"]},{"type":"keyword","title":"Another mnemonic","content":"keyword","expansion":"what it reminds you of","example":"usage example","items":["item1","item2"]}],"memoryPalace":{"description":"one sentence about the scene","story":"A short funny story linking all key concepts — make it vivid and absurd so it sticks"},"rhymeOrSong":{"description":"what the rhyme covers","content":"Short rhyme or jingle — 4 to 6 lines that rhyme and cover the key facts"}}
+Make everything specific to "${topic}". Output JSON only.`;
 
-Return ONLY this JSON — no markdown:
-{
-  "topic": "${topic}",
-  "mnemonics": [
-    {
-      "type": "acronym",
-      "title": "Name of the mnemonic",
-      "content": "The acronym or keyword",
-      "expansion": "What each letter stands for",
-      "example": "How to use it — e.g. VIBGYOR for rainbow colours",
-      "items": ["item1", "item2", "item3"]
-    }
-  ],
-  "memoryPalace": {
-    "description": "A short vivid story or scene that links all the key concepts together",
-    "story": "The actual story — make it funny, dramatic, or absurd so it sticks"
-  },
-  "rhymeOrSong": {
-    "description": "A short rhyme, jingle or rap to remember key facts",
-    "content": "The actual rhyme or jingle"
-  },
-  "visualAssociations": [
-    {
-      "concept": "concept name",
-      "visual": "vivid visual image or association to remember it",
-      "tip": "how to use this mental image"
-    }
-  ],
-  "quickRecallCards": [
-    {
-      "front": "Question or prompt",
-      "back": "Answer with memory hook"
-    }
-  ]
-}
+    // ── Call 2: Visual associations + Flash cards ───────────────────────────────
+    const prompt2 = `You are a fun ICSE memory coach. ${context}
 
-Create at least 3 different mnemonic types, 1 memory palace story, 1 rhyme/jingle, 3 visual associations, and 5 quick recall cards.
+Create visual memory aids. Output ONLY valid JSON:
+{"visualAssociations":[{"concept":"concept from topic","visual":"vivid memorable image to associate with it","tip":"how to use this mental image"},{"concept":"another concept","visual":"vivid image","tip":"usage tip"},{"concept":"third concept","visual":"vivid image","tip":"usage tip"}],"quickRecallCards":[{"front":"Question about topic","back":"Answer with memory hook"},{"front":"Another question","back":"Answer"},{"front":"Question","back":"Answer"},{"front":"Question","back":"Answer"},{"front":"Question","back":"Answer"}]}
 Make everything specific to "${topic}" in ICSE ${grade} ${subject}. Output JSON only.`;
 
-    const raw = await callGroq(prompt, 2500);
-    const data = safeJSON(raw, null);
-    if (!data) return res.status(500).json({ error: 'Could not generate mnemonics. Please try again.' });
-    res.json({ success: true, mnemonics: data });
+    // Sequential calls with a gap — avoids hammering 8b TPM limit
+    const raw1 = await callGroq(prompt1, 2000);
+    await sleep(800);
+    const raw2 = await callGroq(prompt2, 1500);
+
+    const part1 = safeJSON(raw1, {});
+    const part2 = safeJSON(raw2, {});
+
+    // Merge both parts into one object
+    const merged = {
+      topic,
+      mnemonics:          part1.mnemonics          || [],
+      memoryPalace:       part1.memoryPalace        || { description: '', story: '' },
+      rhymeOrSong:        part1.rhymeOrSong         || { description: '', content: '' },
+      visualAssociations: part2.visualAssociations  || [],
+      quickRecallCards:   part2.quickRecallCards    || []
+    };
+
+    if (!merged.mnemonics.length && !merged.memoryPalace.story) {
+      return res.status(500).json({ error: 'Could not generate mnemonics. Please try again.' });
+    }
+
+    res.json({ success: true, mnemonics: merged });
   } catch(err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
