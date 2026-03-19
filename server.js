@@ -289,6 +289,25 @@ function safeJSON(raw, fallback = {}) {
     let cleaned = raw.replace(/^```[a-zA-Z]*\s*/m, '').replace(/\s*```\s*$/m, '').trim();
     cleaned = cleaned.replace(/```[a-zA-Z]*\s*|\s*```/g, '').trim();
 
+    // Fix literal newlines inside JSON string values (8b model often does this)
+    // Walk char-by-char: inside a string, replace raw \n/\r/\t with escape sequences
+    {
+      let out = '', inStr = false, esc = false;
+      for (let i = 0; i < cleaned.length; i++) {
+        const c = cleaned[i];
+        if (esc) { out += c; esc = false; continue; }
+        if (c === '\\') { out += c; esc = true; continue; }
+        if (c === '"') { inStr = !inStr; out += c; continue; }
+        if (inStr) {
+          if (c === '\n')      { out += '\\n'; continue; }
+          if (c === '\r')      { out += '\\r'; continue; }
+          if (c === '\t')      { out += '\\t'; continue; }
+        }
+        out += c;
+      }
+      cleaned = out;
+    }
+
     // Find start of JSON
     const s = cleaned.search(/[{[]/);
     if (s === -1) throw new Error('No JSON found');
@@ -821,7 +840,9 @@ async function analyzePastPaper(files, grade, subject, onProgress = () => {}, on
 
     await sleep(600);
 
-    // Split transcription on question boundaries — never split mid-question
+    // ── Smart content splitter — used for both papers and textbooks ─────────────
+    // For papers: split on Q1/Q2/1. question markers
+    // For textbooks: split on section/heading markers
     function splitByQuestions(text, maxPerChunk) {
       // Match question starters: Q1, Q1(a), 1., 1) etc at start of line
       const qPattern = /(?:^|\n)\s*(?:Q\d+[.(]?|\d+[.)]\s)/gm;
@@ -859,10 +880,11 @@ async function analyzePastPaper(files, grade, subject, onProgress = () => {}, on
         + 'Solve these questions from an uploaded exam paper' + chunkLabel + ':\n\n'
         + chunks[ci] + '\n\n'
         + 'For EACH question give a complete model answer.\n'
-        + 'Numericals: show Given / Formula / Working / Answer with unit.\n'
-        + 'Output ONLY a JSON array — no wrapper, no markdown:\n'
-        + '[{"qno":"Q1","type":"Short Answer","question":"exact question text","answer":"complete model answer","marks":2,"topic":"topic"}]\n'
-        + 'Solve every question. Output JSON array only.';
+        + 'Numericals: show steps as: Given: ... | Formula: ... | Working: ... | Answer: value+unit\n'
+        + 'CRITICAL: answers must be single-line strings — use | or ; to separate steps, NOT line breaks.\n'
+        + 'Output ONLY a JSON array — no wrapper, no markdown, no newlines inside strings:\n'
+        + '[{"qno":"Q1","type":"Short Answer","question":"exact question text","answer":"step1 | step2 | answer","marks":2,"topic":"topic"}]\n'
+        + 'Solve every question. Output JSON array only. No newlines inside string values.';
 
       const solveRaw = await callGroq(solvePrompt, 1800);
       let solveText = solveRaw.trim();
@@ -1044,34 +1066,57 @@ app.post('/api/generate-all', upload.array('files', 10), async (req, res) => {
 
     const extractedText = allExtracted || null;
 
-    // ── Phase 2: Generate notes ───────────────────────────────────────────────
-    sseSend(res, 'progress', { stage: 'notes', message: '📝 Generating ICSE study notes…' });
-    const notesRaw = await callGroq(buildNotesPrompt(g, s, t, extractedText), usingFallback ? 1200 : 5000);
-    const notes = notesRaw.replace(/```html|```/g,'').trim();
+    // ── Phase 2: Generate notes from ALL uploaded pages ───────────────────────
+    sseSend(res, 'progress', { stage: 'notes', message: '📝 Generating study notes from your book pages…' });
+
+    // On 8b fallback with large content: split into two halves so each fits token budget
+    let notes = '';
+    if (extractedText && usingFallback && extractedText.length > 2000) {
+      const half = Math.ceil(extractedText.length / 2);
+      const nr1 = await callGroq(buildNotesPrompt(g, s, t, extractedText.slice(0, half)), 1200);
+      notes = nr1.replace(/```html|```/g,'').trim();
+      sseSend(res, 'notes', { notes, visionUsed: true, filesRead: files.length, partial: true });
+      sseSend(res, 'progress', { stage: 'notes', message: '📝 Generating notes from remaining pages…' });
+      await groqGap(1000);
+      const nr2 = await callGroq(buildNotesPrompt(g, s, t, extractedText.slice(half)), 1200);
+      notes = notes + '\n' + nr2.replace(/```html|```/g,'').trim();
+    } else {
+      const notesRaw = await callGroq(buildNotesPrompt(g, s, t, extractedText), usingFallback ? 1200 : 5000);
+      notes = notesRaw.replace(/```html|```/g,'').trim();
+    }
     sseSend(res, 'notes', { notes, visionUsed: !!extractedText, filesRead: files.length });
 
-    // ── Phase 3: Generate questions (3 sequential calls, streamed) ────────────
+    // ── Phase 3: Questions — each call gets a different SLICE of book content ─────
+    // Divides the full OCR text into 3 equal thirds — one per question call.
+    // This guarantees questions come from every uploaded page, not just the first bit.
+    function bookSlice(text, idx, total) {
+      if (!text) return '';
+      const size = Math.ceil(text.length / total);
+      return text.slice(idx * size, (idx + 1) * size);
+    }
+    console.log('Book content:', extractedText ? extractedText.length + ' chars — split into 3 slices for question calls' : 'topic-only');
+
     sseSend(res, 'progress', { stage: 'questions', message: '❓ Generating MCQ and Fill in Blanks…' });
     await groqGap(usingFallback ? 1000 : 0);
-    const rawA = await callGroq(
-      (extractedText ? 'Base ALL questions on this book content (first 2000 chars):\n' + extractedText.slice(0,2000) + '\n\n' : '')
-      + buildQPromptA(g, s, t), 1800);
+    const sA = bookSlice(extractedText, 0, 3);
+    const ctxA = sA ? 'Base ALL questions on this ICSE textbook content:\n' + sA + '\n\n' : '';
+    const rawA = await callGroq(ctxA + buildQPromptA(g, s, t), 1800);
     const pA = safeJSON(rawA, {});
     sseSend(res, 'questions_partial', { types: ['mcq','fillinblanks'], data: pA });
 
     sseSend(res, 'progress', { stage: 'questions', message: '✅ True/False and Odd One Out…' });
     await groqGap(1000);
-    const rawB = await callGroq(
-      (extractedText ? 'Base ALL questions on this book content (first 2000 chars):\n' + extractedText.slice(0,2000) + '\n\n' : '')
-      + buildQPromptB(g, s, t), 1600);
+    const sB = bookSlice(extractedText, 1, 3);
+    const ctxB = sB ? 'Base ALL questions on this ICSE textbook content:\n' + sB + '\n\n' : '';
+    const rawB = await callGroq(ctxB + buildQPromptB(g, s, t), 1600);
     const pB = safeJSON(rawB, {});
     sseSend(res, 'questions_partial', { types: ['truefalse','oddonesout'], data: pB });
 
     sseSend(res, 'progress', { stage: 'questions', message: '💡 Short and Long Answer questions…' });
     await groqGap(1000);
-    const rawC = await callGroq(
-      (extractedText ? 'Base ALL questions on this book content (first 2000 chars):\n' + extractedText.slice(0,2000) + '\n\n' : '')
-      + buildQPromptC(g, s, t), 1800);
+    const sC = bookSlice(extractedText, 2, 3);
+    const ctxC = sC ? 'Base ALL questions on this ICSE textbook content:\n' + sC + '\n\n' : '';
+    const rawC = await callGroq(ctxC + buildQPromptC(g, s, t), 1800);
     const pC = safeJSON(rawC, {});
     sseSend(res, 'questions_partial', { types: ['assertionreason','shortanswer','longanswer'], data: pC });
 
