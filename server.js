@@ -169,37 +169,62 @@ function isRateLimit(msg) {
          msg.includes('exceeded') || msg.includes('try again in');
 }
 
-// Track which model is active so callers can adapt
+// Track which model is active
 let usingFallback = false;
+let lastFallbackCallTime = 0;
+
+// Enforce minimum time between 8b calls to stay under 6000 TPM
+// 1200 tokens output + ~300 input = 1500 tokens per call
+// 6000 TPM / 1500 = max 4 calls/minute → minimum 15s between calls
+async function groqGap(tokensJustUsed = 1200) {
+  if (!usingFallback) return;
+  const now = Date.now();
+  const minGap = 20000; // 20 seconds between 8b calls (6000 TPM / ~1700 tokens/call = max 3.5 calls/min)
+  const elapsed = now - lastFallbackCallTime;
+  if (elapsed < minGap) {
+    const wait = minGap - elapsed;
+    console.log('8b TPM spacing: waiting ' + Math.round(wait/1000) + 's');
+    await sleep(wait);
+  }
+}
+
+function markFallbackCallDone() {
+  if (usingFallback) lastFallbackCallTime = Date.now();
+}
 
 async function callGroq(prompt, maxTokens = 2048) {
-  // When using 8b fallback, cap tokens to stay under 6000 TPM budget
-  const effectiveTokens = usingFallback ? Math.min(maxTokens, 1800) : maxTokens;
-
   if (!usingFallback) {
     try {
-      const result = await groqCall('llama-3.3-70b-versatile', prompt, effectiveTokens);
-      return result;
+      return await groqCall('llama-3.3-70b-versatile', prompt, maxTokens);
     } catch(e) {
       if (!isRateLimit(e.message)) throw e;
-      console.log('70b rate limited -- switching to llama-3.1-8b-instant');
+      console.log('70b daily limit reached -- switching to llama-3.1-8b-instant');
+      console.log('8b limit: 6000 TPM. Calls auto-spaced 16s apart to stay within limit.');
       usingFallback = true;
-      // Reset after 15 minutes
+      lastFallbackCallTime = 0;
       setTimeout(() => { usingFallback = false; console.log('Retrying 70b model'); }, 15 * 60 * 1000);
     }
   }
 
-  const fallbackTokens = Math.min(maxTokens, 1800);
+  // Enforce pre-call gap BEFORE attempting — prevents TPM hit on first try
+  await groqGap();
+  markFallbackCallDone();
+
+  const fallbackTokens = Math.min(maxTokens, 1200);
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      return await groqCall('llama-3.1-8b-instant', prompt, fallbackTokens);
+      const result = await groqCall('llama-3.1-8b-instant', prompt, fallbackTokens);
+      return result;
     } catch(e) {
       if (isRateLimit(e.message) && attempt < 3) {
-        const wait = retryAfterMs(e.message);
-        console.log('Fallback TPM limit -- retrying in ' + wait + 'ms (attempt ' + (attempt+1) + '/3)');
+        const wait = retryAfterMs(e.message) + 3000;
+        console.log('8b still rate limited -- extra wait ' + wait + 'ms (attempt ' + (attempt+1) + '/3)');
         await sleep(wait);
+        lastFallbackCallTime = Date.now(); // reset timer after forced wait
+      } else if (attempt === 3) {
+        throw new Error('Groq 8b rate limited after 3 attempts. Please wait 1 minute, or upgrade to Groq Dev ($9/month) to remove limits entirely.');
       } else {
-        throw new Error('Service is busy. Please wait 10 seconds and try again.');
+        throw e;
       }
     }
   }
@@ -207,69 +232,62 @@ async function callGroq(prompt, maxTokens = 2048) {
 function safeJSON(raw, fallback = {}) {
   if (!raw) return fallback;
   try {
-    // Strip markdown fences including ```json, ```JSON, ``` etc
-    let cleaned = raw.replace(/^```[a-zA-Z]*\s*/,'').replace(/\s*```\s*$/,'').trim();
-    // Also strip any remaining backtick blocks mid-string
+    // Strip all markdown fences
+    let cleaned = raw.replace(/^```[a-zA-Z]*\s*/m, '').replace(/\s*```\s*$/m, '').trim();
     cleaned = cleaned.replace(/```[a-zA-Z]*\s*|\s*```/g, '').trim();
 
-    // Find the outermost JSON object or array
+    // Find start of JSON
     const s = cleaned.search(/[{[]/);
     if (s === -1) throw new Error('No JSON found');
     let text = cleaned.slice(s);
 
-    // Attempt 1: direct parse
+    // Attempt 1: direct parse (handles well-formed JSON including pretty-printed)
     try { return JSON.parse(text); } catch(_) {}
 
-    // Attempt 2: find the last closing brace/bracket that balances
+    // Attempt 2: find balanced closing delimiter
     let depth = 0, lastClose = -1;
-    const opener = text[0];
-    const closer = opener === '{' ? '}' : ']';
+    const opener = text[0], closer = opener === '{' ? '}' : ']';
     for (let i = 0; i < text.length; i++) {
       if (text[i] === opener) depth++;
       else if (text[i] === closer) { depth--; if (depth === 0) { lastClose = i; break; } }
     }
-    if (lastClose > 0) {
-      try { return JSON.parse(text.slice(0, lastClose + 1)); } catch(_) {}
-    }
+    if (lastClose > 0) { try { return JSON.parse(text.slice(0, lastClose + 1)); } catch(_) {} }
 
-    // Attempt 3: close unclosed strings, brackets, braces
-    let opens = 0, arr = 0;
-    for (const c of text) {
-      if (c === '{') opens++; else if (c === '}') opens--;
-      if (c === '[') arr++;   else if (c === ']') arr--;
-    }
-    let fixed = text.replace(/,\s*([}\]])/, '$1');  // remove trailing commas
-    fixed = fixed.replace(/,\s*$/, '');             // remove trailing comma
-    // Count unclosed quotes to detect truncated string values
-    const quoteCount = (fixed.match(/(?<!\\)"/g) || []).length;
-    if (quoteCount % 2 !== 0) fixed += '"';          // close open string
-    for (let i = 0; i < Math.max(0, arr);   i++) fixed += ']';
-    for (let i = 0; i < Math.max(0, opens); i++) fixed += '}';
-    try { return JSON.parse(fixed); } catch(_) {}
-
-    // Attempt 4: cut at the last complete key-value pair before truncation
-    const lastComma = text.lastIndexOf('},{');
-    if (lastComma > 0) {
-      let chopped = text.slice(0, lastComma + 1) + ']';
-      // find the opening [ to wrap it
-      const arrStart = chopped.lastIndexOf('[');
-      if (arrStart > 0) {
-        const prefix = chopped.slice(0, arrStart + 1);
-        const suffix = chopped.slice(arrStart + 1);
-        const q2 = (suffix.match(/(?<!\\)"/g)||[]).length;
-        let s2 = suffix;
-        if (q2 % 2 !== 0) s2 += '"';
-        let o2=0, a2=0;
-        for (const c of s2) { if(c==='{')o2++;else if(c==='}')o2--;if(c==='[')a2++;else if(c===']')a2--; }
-        for (let i=0;i<Math.max(0,a2);i++) s2+=']';
-        for (let i=0;i<Math.max(0,o2);i++) s2+='}';
-        try { return JSON.parse(prefix + s2); } catch(_) {}
+    // Attempt 3: repair — cut incomplete last object, close strings/brackets
+    function repairJSON(t) {
+      // Remove trailing commas
+      let fixed = t.replace(/,\s*([}\]])/g, '$1').replace(/,\s*$/, '');
+      // Close open strings (track string state properly)
+      let inStr = false, escaped = false;
+      for (const c of fixed) {
+        if (escaped) { escaped = false; continue; }
+        if (c === '\\') { escaped = true; continue; }
+        if (c === '"') inStr = !inStr;
       }
+      if (inStr) fixed += '"';
+      // Cut at last complete array item if there's a truncated one
+      const lastComplete = fixed.lastIndexOf('},{');
+      if (lastComplete > 0) {
+        let trimmed = fixed.slice(0, lastComplete + 1);
+        let o2 = 0, a2 = 0;
+        for (const c of trimmed) { if(c==='{')o2++;else if(c==='}')o2--;if(c==='[')a2++;else if(c===']')a2--; }
+        for (let i = 0; i < Math.max(0, a2); i++) trimmed += ']';
+        for (let i = 0; i < Math.max(0, o2); i++) trimmed += '}';
+        try { return JSON.parse(trimmed); } catch(_) {}
+      }
+      // Just close all open brackets
+      let opens = 0, arrs = 0;
+      for (const c of fixed) { if(c==='{')opens++;else if(c==='}')opens--;if(c==='[')arrs++;else if(c===']')arrs--; }
+      for (let i = 0; i < Math.max(0, arrs);  i++) fixed += ']';
+      for (let i = 0; i < Math.max(0, opens); i++) fixed += '}';
+      try { return JSON.parse(fixed); } catch(_) { return null; }
     }
+    const repaired = repairJSON(text);
+    if (repaired !== null) return repaired;
 
     throw new Error('Could not parse JSON even after repair');
   } catch(e) {
-    console.error('JSON parse failed:', e.message, '\nRaw preview:', raw.slice(0,200));
+    console.error('JSON parse failed:', e.message, '\nRaw preview:', raw.slice(0, 200));
     return fallback;
   }
 }
@@ -658,7 +676,7 @@ function buildBankPrompt(grade, subject, topic) {
 // ── PAST PAPER ANALYSIS ───────────────────────────────────────────────────────
 // Architecture: Gemini = OCR only (plain text, never fails)
 //               Groq   = solve from text + generate new questions
-async function analyzePastPaper(fileBuffer, mimeType, grade, subject) {
+async function analyzePastPaper(fileBuffer, mimeType, grade, subject, onProgress = () => {}) {
 
   // ── Step 1: Gemini reads the paper as PLAIN TEXT (no JSON, never fails) ──────
   let transcription = null;
@@ -679,6 +697,7 @@ async function analyzePastPaper(fileBuffer, mimeType, grade, subject) {
             + 'Just copy the paper exactly as you see it.'
         }
       ];
+      onProgress('📖 AI is reading the paper…');
       transcription = await callGeminiVision(ocrParts, 3);
       console.log('Gemini OCR result:', transcription ? transcription.length + ' chars' : 'failed');
     } catch(err) {
@@ -692,6 +711,7 @@ async function analyzePastPaper(fileBuffer, mimeType, grade, subject) {
 
   if (transcription) {
     // First call: analyse the paper structure (tiny, always fits)
+    onProgress('✅ Paper read! Analysing structure…');
     const analysePrompt = 'A student uploaded this ICSE ' + grade + ' ' + subject + ' paper:\n\n'
       + transcription.slice(0, 800) + '\n\n'
       + 'Identify: total marks, section names, topics covered, question types.\n'
@@ -706,6 +726,7 @@ async function analyzePastPaper(fileBuffer, mimeType, grade, subject) {
     // Second call: solve the questions — pass the transcription as context
     // Keep it tight: 1200 chars of transcription max to fit in 8b tokens
     const transcSnippet = transcription.slice(0, 1200);
+    onProgress('🧠 Solving questions with model answers…');
     const solvePrompt = 'You are an ICSE ' + grade + ' ' + subject + ' teacher.\n'
       + 'Here are questions from an uploaded exam paper:\n\n'
       + transcSnippet + '\n\n'
@@ -741,6 +762,7 @@ async function analyzePastPaper(fileBuffer, mimeType, grade, subject) {
   // ── Step 3: Generate 8 NEW similar questions (always small, always fits) ──────
   await sleep(600);
   const topics = (paperAnalysis.topicsCovered || [subject]).slice(0, 3).join(', ') || subject;
+  onProgress('✨ Generating similar new questions…');
   const genPrompt = 'Generate 6 NEW ICSE ' + grade + ' ' + subject + ' questions on: ' + topics + '. '
     + 'Mix MCQ, Short Answer, Numerical, Long Answer. Give model answers. '
     + 'Output JSON: {"generatedQuestions":['
@@ -761,70 +783,170 @@ async function analyzePastPaper(fileBuffer, mimeType, grade, subject) {
 }
 // ── Generate questions ────────────────────────────────────────────────────────
 async function generateQuestions(grade, subject, topic, extractedText = null) {
-  // Put extracted text FIRST so it's seen before the long prompts (not ignored at end)
+  // Cap extracted text to avoid overwhelming the prompt
   const pre = extractedText
     ? 'The student uploaded pages from their ICSE ' + grade + ' ' + subject + ' textbook about "' + topic + '".\n'
-      + 'Base ALL questions on this exact content from the book:\n---\n'
-      + extractedText.slice(0, 4000)
+      + 'Base ALL questions on this exact content:\n---\n'
+      + extractedText.slice(0, 2000)
       + '\n---\n\n'
     : '';
-  const [rawA, rawB, rawC] = await Promise.all([
-    callGroq(pre + buildQPromptA(grade, subject, topic), 2200),
-    callGroq(pre + buildQPromptB(grade, subject, topic), 1800),
-    callGroq(pre + buildQPromptC(grade, subject, topic), 3200)
-  ]);
 
   const questions = { mcq:[], fillinblanks:[], truefalse:[], oddonesout:[], assertionreason:[], shortanswer:[], longanswer:[] };
 
+  // Sequential with TPM-aware gaps between each call
+  const rawA = await callGroq(pre + buildQPromptA(grade, subject, topic), 1800);
   const pA = safeJSON(rawA, null);
+  if (pA) Object.assign(questions, pA); else console.error('PromptA FAILED:', rawA.slice(0,200));
+
+  await groqGap(1200);
+
+  const rawB = await callGroq(pre + buildQPromptB(grade, subject, topic), 1600);
   const pB = safeJSON(rawB, null);
+  if (pB) Object.assign(questions, pB); else console.error('PromptB FAILED:', rawB.slice(0,200));
+
+  await groqGap(1200);
+
+  const rawC = await callGroq(pre + buildQPromptC(grade, subject, topic), 1800);
   const pC = safeJSON(rawC, null);
+  if (pC) Object.assign(questions, pC); else console.error('PromptC FAILED:', rawC.slice(0,200));
 
-  if (pA) Object.assign(questions, pA); else console.error('PromptA FAILED. Raw:', rawA.slice(0,400));
-  if (pB) Object.assign(questions, pB); else console.error('PromptB FAILED. Raw:', rawB.slice(0,400));
-  if (pC) Object.assign(questions, pC); else console.error('PromptC FAILED. Raw:', rawC.slice(0,400));
-
-  console.log(`Questions: mcq:${questions.mcq.length} fib:${questions.fillinblanks.length} tf:${questions.truefalse.length} ooo:${questions.oddonesout.length} ar:${questions.assertionreason.length} sa:${questions.shortanswer.length} la:${questions.longanswer.length}`);
+  console.log('Questions: mcq:' + questions.mcq.length + ' fib:' + questions.fillinblanks.length + ' tf:' + questions.truefalse.length + ' ooo:' + questions.oddonesout.length + ' ar:' + questions.assertionreason.length + ' sa:' + questions.shortanswer.length + ' la:' + questions.longanswer.length);
   return questions;
 }
 
-// ── /api/generate-all ─────────────────────────────────────────────────────────
+// ── SSE helper ───────────────────────────────────────────────────────────────
+function sseSetup(res) {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+}
+function sseSend(res, event, data) {
+  res.write('event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n');
+}
+
+// ── /api/generate-all (SSE streaming) ────────────────────────────────────────
 app.post('/api/generate-all', upload.array('files', 10), async (req, res) => {
+  const { subject, topic, grade } = req.body;
+  const files = req.files || [];
+  const hasFiles = files.length > 0;
+
+  if (!topic && !hasFiles) return res.status(400).json({ error: 'Enter a topic or upload files.' });
+
+  sseSetup(res);
+  const g = grade || 'Grade 8', s = subject || '', t = topic || '';
+
   try {
-    const { subject, topic, grade } = req.body;
-    const files = req.files || [];
-    const hasFiles = files.length > 0;
-    if (!topic && !hasFiles) return res.status(400).json({ error: 'Enter a topic or upload files.' });
+    // ── Phase 1: Read each uploaded page with Gemini, stream as each completes ──
+    let allExtracted = '';
 
-    const g = grade || 'Grade 8', s = subject || '', t = topic || '';
+    if (hasFiles && process.env.GEMINI_API_KEY) {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        sseSend(res, 'progress', {
+          stage: 'reading',
+          message: '📖 Reading page ' + (i + 1) + ' of ' + files.length + '…',
+          page: i + 1,
+          total: files.length
+        });
 
-    // If files uploaded — use Gemini vision to extract text from all pages first
-    let extractedText = null;
-    if (hasFiles) {
-      extractedText = await extractTextFromFiles(files, g, s, t);
-      if (extractedText) {
-        console.log(`Using extracted content (${extractedText.length} chars) from ${files.length} uploaded file(s)`);
-      } else {
-        console.log('Vision extraction failed or unavailable — using topic-only mode');
+        try {
+          const pageText = await callGeminiVision([
+            {
+              inline_data: {
+                mime_type: file.mimetype === 'application/pdf' ? 'application/pdf' : file.mimetype,
+                data: file.buffer.toString('base64')
+              }
+            },
+            {
+              text: 'Read this page from an ICSE ' + g + ' ' + s + ' textbook. '
+                + 'Transcribe ALL visible text: headings, definitions, formulas, diagrams, tables, examples. '
+                + 'Plain text only. Start directly with the content.'
+            }
+          ]);
+
+          if (pageText) {
+            allExtracted += (allExtracted ? '\n\n--- Page ' + (i+1) + ' ---\n\n' : '') + pageText;
+            sseSend(res, 'progress', {
+              stage: 'page_done',
+              message: '✅ Page ' + (i + 1) + ' read (' + pageText.length + ' chars)',
+              page: i + 1,
+              total: files.length,
+              preview: pageText.slice(0, 100)
+            });
+          } else {
+            sseSend(res, 'progress', { stage: 'page_failed', message: '⚠️ Could not read page ' + (i+1), page: i+1 });
+          }
+        } catch(err) {
+          sseSend(res, 'progress', { stage: 'page_failed', message: '⚠️ Page ' + (i+1) + ': ' + err.message, page: i+1 });
+        }
+
+        // Natural gap between pages — gives Gemini rate limit breathing room
+        if (i < files.length - 1) await sleep(1500);
       }
+
+      if (allExtracted) {
+        sseSend(res, 'progress', {
+          stage: 'all_pages_read',
+          message: '📚 All ' + files.length + ' pages read. Generating notes…',
+          totalChars: allExtracted.length
+        });
+      }
+    } else if (hasFiles && !process.env.GEMINI_API_KEY) {
+      sseSend(res, 'progress', { stage: 'no_vision', message: '⚠️ GEMINI_API_KEY not set — generating from topic name only' });
     }
 
-    const [notesRaw, questions, bankRaw] = await Promise.all([
-      callGroq(buildNotesPrompt(g, s, t, extractedText), 6000),
-      generateQuestions(g, s, t, extractedText),
-      callGroq(buildBankPrompt(g, s, t), 4000)
-    ]);
+    const extractedText = allExtracted || null;
 
+    // ── Phase 2: Generate notes ───────────────────────────────────────────────
+    sseSend(res, 'progress', { stage: 'notes', message: '📝 Generating ICSE study notes…' });
+    const notesRaw = await callGroq(buildNotesPrompt(g, s, t, extractedText), usingFallback ? 1200 : 5000);
     const notes = notesRaw.replace(/```html|```/g,'').trim();
-    const bank  = safeJSON(bankRaw, { questions:[] });
-    const visionUsed = hasFiles && !!extractedText;
-    res.json({
-      success: true, notes, questions, bank,
-      fromTopic: !hasFiles,
-      visionUsed,
-      filesRead: hasFiles ? files.length : 0
-    });
-  } catch(err) { console.error(err); res.status(500).json({ error: err.message }); }
+    sseSend(res, 'notes', { notes, visionUsed: !!extractedText, filesRead: files.length });
+
+    // ── Phase 3: Generate questions (3 sequential calls, streamed) ────────────
+    sseSend(res, 'progress', { stage: 'questions', message: '❓ Generating MCQ and Fill in Blanks…' });
+    await groqGap(usingFallback ? 1000 : 0);
+    const rawA = await callGroq(
+      (extractedText ? 'Base ALL questions on this book content (first 2000 chars):\n' + extractedText.slice(0,2000) + '\n\n' : '')
+      + buildQPromptA(g, s, t), 1800);
+    const pA = safeJSON(rawA, {});
+    sseSend(res, 'questions_partial', { types: ['mcq','fillinblanks'], data: pA });
+
+    sseSend(res, 'progress', { stage: 'questions', message: '✅ True/False and Odd One Out…' });
+    await groqGap(1000);
+    const rawB = await callGroq(
+      (extractedText ? 'Base ALL questions on this book content (first 2000 chars):\n' + extractedText.slice(0,2000) + '\n\n' : '')
+      + buildQPromptB(g, s, t), 1600);
+    const pB = safeJSON(rawB, {});
+    sseSend(res, 'questions_partial', { types: ['truefalse','oddonesout'], data: pB });
+
+    sseSend(res, 'progress', { stage: 'questions', message: '💡 Short and Long Answer questions…' });
+    await groqGap(1000);
+    const rawC = await callGroq(
+      (extractedText ? 'Base ALL questions on this book content (first 2000 chars):\n' + extractedText.slice(0,2000) + '\n\n' : '')
+      + buildQPromptC(g, s, t), 1800);
+    const pC = safeJSON(rawC, {});
+    sseSend(res, 'questions_partial', { types: ['assertionreason','shortanswer','longanswer'], data: pC });
+
+    // ── Phase 4: Question bank (skip on fallback) ─────────────────────────────
+    let bank = { questions: [] };
+    if (!usingFallback) {
+      sseSend(res, 'progress', { stage: 'bank', message: '🏦 Building question bank…' });
+      await sleep(800);
+      const bankRaw = await callGroq(buildBankPrompt(g, s, t), 3000);
+      bank = safeJSON(bankRaw, { questions: [] });
+    }
+    sseSend(res, 'bank', { bank });
+
+    sseSend(res, 'done', { success: true });
+  } catch(err) {
+    console.error(err);
+    sseSend(res, 'error', { error: err.message });
+  } finally {
+    res.end();
+  }
 });
 
 // ── /api/questions-only ───────────────────────────────────────────────────────
@@ -837,16 +959,30 @@ app.post('/api/questions-only', async (req, res) => {
   } catch(err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
-// ── /api/analyze-paper (past paper upload) ────────────────────────────────────
+// ── /api/analyze-paper (SSE streaming) ───────────────────────────────────────
 app.post('/api/analyze-paper', upload.single('paper'), async (req, res) => {
-  try {
-    const { grade, subject } = req.body;
-    const file = req.file;
-    if (!file) return res.status(400).json({ error: 'Please upload a past paper.' });
+  const { grade, subject } = req.body;
+  const file = req.file;
+  if (!file) return res.status(400).json({ error: 'Please upload a past paper.' });
 
-    const result = await analyzePastPaper(file.buffer, file.mimetype, grade||'Grade 8', subject||'');
-    res.json({ success:true, ...result });
-  } catch(err) { console.error(err); res.status(500).json({ error: err.message }); }
+  sseSetup(res);
+  const g = grade || 'Grade 8', s = subject || '';
+
+  try {
+    sseSend(res, 'progress', { stage: 'reading', message: '📄 Reading your paper with AI vision…' });
+
+    const result = await analyzePastPaper(file.buffer, file.mimetype, g, s, (msg) => {
+      sseSend(res, 'progress', { stage: 'solving', message: msg });
+    });
+
+    sseSend(res, 'analysis', { ...result, success: true });
+    sseSend(res, 'done', { success: true });
+  } catch(err) {
+    console.error(err);
+    sseSend(res, 'error', { error: err.message });
+  } finally {
+    res.end();
+  }
 });
 
 // ── /api/ask ──────────────────────────────────────────────────────────────────
