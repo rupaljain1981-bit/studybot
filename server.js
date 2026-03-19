@@ -3,11 +3,9 @@ const express = require('express');
 const multer  = require('multer');
 const cors    = require('cors');
 const path    = require('path');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -22,20 +20,29 @@ const upload = multer({
   }
 });
 
-// ── Gemini helper ─────────────────────────────────────────────────────────────
-async function callGemini(prompt, fileParts = [], useSearch = false) {
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
-    tools: useSearch ? [{ googleSearch: {} }] : []
+// ── Groq helper ───────────────────────────────────────────────────────────────
+async function callGroq(prompt) {
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 4096,
+      temperature: 0.7
+    })
   });
-  const result = await model.generateContent([...fileParts, { text: prompt }]);
-  return result.response.text();
-}
 
-function toFileParts(files) {
-  return files.map(f => ({
-    inlineData: { mimeType: f.mimetype, data: f.buffer.toString('base64') }
-  }));
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error?.message || 'Groq API error');
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
 }
 
 // ── Notes ─────────────────────────────────────────────────────────────────────
@@ -49,17 +56,14 @@ app.post('/api/generate-notes', upload.array('files', 10), async (req, res) => {
       return res.status(400).json({ error: 'Enter a topic or upload files.' });
     }
 
-    const prompt = `You are an expert teacher for ${grade || 'Grade 8'} students following the ICSE / CBSE curriculum.
+    const prompt = `You are an expert teacher for ${grade || 'Grade 8'} students following the ICSE/CBSE curriculum.
 Subject: ${subject || ''}
 Topic: ${topic || ''}
 Grade: ${grade || 'Grade 8'}
 
-${hasFiles
-  ? 'Analyse the uploaded textbook pages and produce detailed study notes.'
-  : 'Use your knowledge of the curriculum to produce detailed study notes on this topic.'}
+Create detailed, comprehensive study notes for this topic appropriate for ${grade || 'Grade 8'} students.
 
-Return ONLY the following HTML — no markdown, no backticks, no preamble.
-Keep language appropriate for ${grade || 'Grade 8'} students.
+Return ONLY the following HTML — no markdown, no backticks, no preamble:
 
 <div class="notes-content">
   <section class="key-concepts">
@@ -68,15 +72,15 @@ Keep language appropriate for ${grade || 'Grade 8'} students.
   </section>
   <section class="detailed-notes">
     <h2>📚 Detailed Notes</h2>
-    <!-- thorough notes with sub-headings, examples, diagrams described in text -->
+    <!-- thorough notes with sub-headings and examples -->
   </section>
   <section class="memory-tricks">
-    <h2>💡 Memory Tricks &amp; Mnemonics</h2>
+    <h2>💡 Memory Tricks & Mnemonics</h2>
     <!-- at least 3 clever memory aids -->
   </section>
   <section class="important-formulas">
     <h2>📐 Key Formulas / Definitions</h2>
-    <!-- every important formula or definition in a highlighted box -->
+    <!-- every important formula or definition -->
   </section>
   <section class="quick-summary">
     <h2>⚡ Quick Summary</h2>
@@ -84,11 +88,13 @@ Keep language appropriate for ${grade || 'Grade 8'} students.
   </section>
   <section class="infographic">
     <h2>🗺️ Concept Map</h2>
-    <!-- ASCII table or text diagram showing relationships between ideas -->
+    <!-- ASCII table or text diagram showing relationships -->
   </section>
-</div>`;
+</div>
 
-    const raw     = await callGemini(prompt, toFileParts(files), !hasFiles);
+Use simple language appropriate for ${grade || 'Grade 8'}, include real-world examples. Return ONLY the HTML.`;
+
+    const raw     = await callGroq(prompt);
     const cleaned = raw.replace(/```html|```/g, '').trim();
     res.json({ success: true, notes: cleaned, fromTopic: !hasFiles });
 
@@ -109,7 +115,7 @@ Subject: ${subject || ''} | Topic: ${topic || ''} | Grade: ${grade || 'Grade 8'}
 
 Based on these notes, create a question set.
 NOTES:
-${notes}
+${notes.slice(0, 3000)}
 
 Return ONLY valid JSON — no markdown, no backticks:
 {
@@ -143,7 +149,7 @@ Return ONLY valid JSON — no markdown, no backticks:
   ]
 }`;
 
-    const raw = await callGemini(prompt);
+    const raw = await callGroq(prompt);
     let questions;
     try {
       questions = JSON.parse(raw.replace(/```json|```/g, '').trim());
@@ -166,9 +172,13 @@ app.post('/api/question-bank', async (req, res) => {
       return res.status(400).json({ error: 'Subject and topic are required.' });
     }
 
-    const prompt = `Search for past exam questions for ${grade || 'Grade 8'} students on: ${subject} — ${topic}.
+    const prompt = `You are an ICSE/CBSE exam expert. Generate a question bank for:
+Grade: ${grade || 'Grade 8'}
+Subject: ${subject}
+Topic: ${topic}
+Difficulty: ${difficulty || 'mixed'}
 
-Find questions from ICSE/CBSE previous year papers, sample papers, and sites like topperlearning, vedantu, extramarks.
+Create 15 exam-style questions based on the ICSE/CBSE curriculum for this topic.
 
 Return ONLY valid JSON (no markdown):
 {
@@ -176,15 +186,15 @@ Return ONLY valid JSON (no markdown):
   "topic": "${topic}",
   "grade": "${grade || 'Grade 8'}",
   "questions": [
-    {"difficulty":"easy","question":"...","answer":"...","source":"...","year":"..."},
-    {"difficulty":"medium","question":"...","answer":"...","source":"...","year":"..."},
-    {"difficulty":"hard","question":"...","answer":"...","source":"...","year":"..."}
+    {"difficulty":"easy","question":"...","answer":"...","source":"ICSE Curriculum","year":""},
+    {"difficulty":"medium","question":"...","answer":"...","source":"ICSE Curriculum","year":""},
+    {"difficulty":"hard","question":"...","answer":"...","source":"ICSE Curriculum","year":""}
   ]
 }
 
-Include at least 15 questions with ${difficulty || 'mixed'} difficulty. Return ONLY valid JSON.`;
+Include exactly 15 questions with mixed difficulties. Return ONLY valid JSON.`;
 
-    const raw = await callGemini(prompt, [], true);
+    const raw = await callGroq(prompt);
     let bank;
     try {
       const cleaned = raw.replace(/```json|```/g, '').trim();
@@ -205,11 +215,11 @@ app.post('/api/ask', async (req, res) => {
   try {
     const { question, context, grade } = req.body;
     const prompt = `You are a friendly tutor for ${grade || 'Grade 8'} students. Answer simply and clearly.
-${context ? `Notes context: ${context}\n` : ''}
+${context ? `Notes context: ${context.slice(0, 1000)}\n` : ''}
 Student question: ${question}
 Give an encouraging, clear answer with bullet points and examples.`;
 
-    const answer = await callGemini(prompt, [], true);
+    const answer = await callGroq(prompt);
     res.json({ success: true, answer });
   } catch (err) {
     console.error(err);
@@ -217,9 +227,9 @@ Give an encouraging, clear answer with bullet points and examples.`;
   }
 });
 
-app.get('/api/health', (_, res) => res.json({ status: 'ok' }));
+app.get('/api/health', (_, res) => res.json({ status: 'ok', powered_by: 'Groq (free)' }));
 
 app.listen(PORT, () => {
   console.log(`\n🎓 StudyBot running at http://localhost:${PORT}`);
-  console.log(`   Powered by Google Gemini (free)\n`);
+  console.log(`   Powered by Groq LLaMA (free)\n`);
 });
