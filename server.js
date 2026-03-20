@@ -697,7 +697,7 @@ function buildBankPrompt(grade, subject, topic) {
 // ── PAST PAPER ANALYSIS ───────────────────────────────────────────────────────
 // Architecture: Gemini = OCR only (plain text, never fails)
 //               Groq   = solve from text + generate new questions
-async function analyzePastPaper(files, grade, subject, onProgress = () => {}, onSolved = () => {}) {
+async function analyzePastPaper(files, grade, subject, onProgress = () => {}, onSolved = () => {}, onGenerated = () => {}) {
   // files = array of multer file objects (supports multiple pages photographed separately)
 
   // Cap pages
@@ -869,20 +869,30 @@ async function analyzePastPaper(files, grade, subject, onProgress = () => {}, on
     solvedQuestions = fb.solvedQuestions || [];
   }
 
-  // ── Step 3: Generate 8 NEW similar questions (always small, always fits) ──────
-  await sleep(600);
+  // ── Step 3: Generate similar new questions based on the paper's topics ─────────
   const topics = (paperAnalysis.topicsCovered || [subject]).slice(0, 3).join(', ') || subject;
-  onProgress('✨ Generating similar new questions…');
-  const genPrompt = 'Generate 6 NEW ICSE ' + grade + ' ' + subject + ' questions on: ' + topics + '. '
-    + 'Mix MCQ, Short Answer, Numerical, Long Answer. Give model answers. '
-    + 'Output JSON: {"generatedQuestions":['
-    + '{"type":"MCQ","difficulty":"medium","question":"specific question A) B) C) D)","answer":"C) answer — reason","marks":1,"topic":"' + topics.split(',')[0].trim() + '"},'
-    + '{"type":"Short Answer","difficulty":"medium","question":"specific 2-mark question","answer":"model answer","marks":2,"topic":"topic"},'
-    + '{"type":"Long Answer","difficulty":"hard","question":"specific 5-mark question","answer":"structured answer","marks":5,"topic":"topic"}'
-    + ']}';
+  onProgress('✨ Generating similar new questions on: ' + topics + '…');
 
-  const genRaw = await callGroq(genPrompt, 1500);
+  const genPrompt = 'You are an ICSE ' + grade + ' ' + subject + ' examiner.\n'
+    + 'The student just solved a past paper covering: ' + topics + '.\n'
+    + 'Generate 8 NEW exam-quality questions on these same topics — different from the paper but same style and difficulty.\n'
+    + 'Mix types: 2 MCQ, 2 Short Answer, 2 Numerical, 2 Long Answer.\n'
+    + 'Give a complete model answer for every question.\n'
+    + 'Output ONLY valid JSON (no markdown):\n'
+    + '{"generatedQuestions":['
+    + '{"type":"MCQ","difficulty":"medium","question":"specific MCQ question with A) B) C) D) options","answer":"B) correct answer — reason why","marks":1,"topic":"' + topics.split(',')[0].trim() + '"},'
+    + '{"type":"Short Answer","difficulty":"medium","question":"specific 2-mark question","answer":"complete model answer","marks":2,"topic":"' + topics.split(',')[0].trim() + '"},'
+    + '{"type":"Numerical","difficulty":"hard","question":"word problem with specific values","answer":"Given: values | Formula: formula | Working: steps | Answer: value + unit","marks":3,"topic":"' + topics.split(',')[0].trim() + '"},'
+    + '{"type":"Long Answer","difficulty":"hard","question":"specific 5-mark question","answer":"full structured model answer","marks":5,"topic":"' + topics.split(',')[0].trim() + '"}'
+    + ']}\nGenerate all 8 questions with specific content. Output JSON only.';
+
+  const genRaw = await callGroq(genPrompt, 3000);
+  console.log('Generated questions raw length:', genRaw ? genRaw.length : 0);
   const generated = safeJSON(genRaw, { generatedQuestions: [] });
+  console.log('Generated questions parsed:', (generated.generatedQuestions || []).length);
+
+  // Call onGenerated so the route can stream generated questions immediately
+  onGenerated(generated.generatedQuestions || []);
 
   return {
     paperAnalysis,
@@ -1098,13 +1108,17 @@ app.post('/api/analyze-paper', upload.array('paper', 20), async (req, res) => {
     const result = await analyzePastPaper(files, g, s,
       // onProgress
       (msg) => { sseSend(res, 'progress', { stage: 'solving', message: msg }); },
-      // onSolved — stream solved questions the moment Groq finishes them
+      // onSolved — stream solved questions as each chunk completes
       (solved, analysis) => {
         sseSend(res, 'solved', { solvedQuestions: solved, paperAnalysis: analysis, transcribed: true });
+      },
+      // onGenerated — stream similar questions the moment they are ready
+      (generatedQuestions) => {
+        sseSend(res, 'generated', { generatedQuestions });
       }
     );
 
-    // Stream generated questions as second wave
+    // Final event with everything for completeness
     sseSend(res, 'analysis', { ...result, success: true });
     sseSend(res, 'done', { success: true });
   } catch(err) {
