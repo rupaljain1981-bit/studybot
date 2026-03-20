@@ -697,7 +697,7 @@ function buildBankPrompt(grade, subject, topic) {
 // ── PAST PAPER ANALYSIS ───────────────────────────────────────────────────────
 // Architecture: Gemini = OCR only (plain text, never fails)
 //               Groq   = solve from text + generate new questions
-async function analyzePastPaper(files, grade, subject, onProgress = () => {}, onSolved = () => {}, onGenerated = () => {}) {
+async function analyzePastPaper(files, grade, subject, onProgress = () => {}, onSolved = (s,a,done)=>{}, onGenerated = () => {}) {
   // files = array of multer file objects (supports multiple pages photographed separately)
 
   // Cap pages
@@ -787,8 +787,6 @@ async function analyzePastPaper(files, grade, subject, onProgress = () => {}, on
     paperAnalysis = safeJSON(analysisRaw, { totalMarks: 80, sections: [], topicsCovered: [subject], questionTypes: [], difficultyObservation: 'mixed' });
     console.log('Paper analysis done, topics:', paperAnalysis.topicsCovered);
 
-    await sleep(600);
-
     // ── Smart content splitter — used for both papers and textbooks ─────────────
     // For papers: split on Q1/Q2/1. question markers
     // For textbooks: split on section/heading markers
@@ -854,6 +852,8 @@ async function analyzePastPaper(files, grade, subject, onProgress = () => {}, on
       // No gap needed on paid tier — Scout has no TPM limits
     }
     console.log('Total solved:', solvedQuestions.length, 'from', chunks.length, 'chunks');
+    // Always fire onSolved one final time after ALL chunks — removes "processing" indicator
+    onSolved(solvedQuestions, paperAnalysis, true); // true = allDone
 
   } else {
     // No vision — generate curriculum questions
@@ -1108,9 +1108,9 @@ app.post('/api/analyze-paper', upload.array('paper', 20), async (req, res) => {
     const result = await analyzePastPaper(files, g, s,
       // onProgress
       (msg) => { sseSend(res, 'progress', { stage: 'solving', message: msg }); },
-      // onSolved — stream solved questions as each chunk completes
-      (solved, analysis) => {
-        sseSend(res, 'solved', { solvedQuestions: solved, paperAnalysis: analysis, transcribed: true });
+      // onSolved — stream solved questions as each chunk completes; allDone=true on final call
+      (solved, analysis, allDone = false) => {
+        sseSend(res, 'solved', { solvedQuestions: solved, paperAnalysis: analysis, transcribed: true, allDone });
       },
       // onGenerated — stream similar questions the moment they are ready
       (generatedQuestions) => {
