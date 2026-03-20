@@ -1164,27 +1164,37 @@ async function analyzePaper() {
                 + '<div class="q-text">' + q.question + '</div>'
                 + '<div class="q-answer">✅ <strong>Model Answer:</strong><br>' + formatAnswer(q.answer||'') + '</div>'
                 + '</div>').join('')
-              + '<div id="pp-solving-indicator" style="text-align:center;padding:.75rem;color:rgba(255,255,255,.5);font-size:12px">⏳ Processing remaining questions…</div>'
+              + (data.allDone ? '' : '<div id="pp-solving-indicator" style="text-align:center;padding:.75rem;color:rgba(255,255,255,.5);font-size:12px">⏳ Solving remaining questions…</div>')
             : '<div class="pp-progress" style="text-align:center;padding:1.5rem">'
               + '<div class="gen-spinner" style="margin:0 auto .5rem;width:24px;height:24px;border-width:2px"></div>'
               + '<div style="color:rgba(255,255,255,.7);font-size:13px">🧠 Solving questions…</div></div>';
 
-          // Generated tab shows spinner while waiting
+          // Generated tab: show spinner only if not already populated, and not allDone
           if (!document.getElementById('pp-generated').querySelector('.q-card')) {
-            document.getElementById('pp-generated').innerHTML =
-              '<div style="text-align:center;padding:1.5rem;color:rgba(255,255,255,.6)">'
-              + '<div class="gen-spinner" style="margin:0 auto .5rem;width:22px;height:22px;border-width:2px"></div>'
-              + '⏳ Generating similar questions…</div>';
+            if (data.allDone) {
+              document.getElementById('pp-generated').innerHTML =
+                '<div style="text-align:center;padding:1.5rem;color:rgba(255,255,255,.6)">'
+                + '<div class="gen-spinner" style="margin:0 auto .5rem;width:22px;height:22px;border-width:2px"></div>'
+                + '⏳ Generating similar questions…</div>';
+            } else {
+              document.getElementById('pp-generated').innerHTML =
+                '<div style="text-align:center;padding:1.5rem;color:rgba(255,255,255,.6)">'
+                + '<div class="gen-spinner" style="margin:0 auto .5rem;width:22px;height:22px;border-width:2px"></div>'
+                + '⏳ Solving questions — similar questions will appear after…</div>';
+            }
           }
 
           // Show output and switch to solved tab on first chunk
           document.getElementById('pp-empty').style.display = 'none';
           document.getElementById('pp-output').style.display = 'block';
-          if (sqs.length <= 8) { // only switch tab on first chunk
+          if (sqs.length <= 8) {
             const sb = document.querySelector('#page-paper .sub-tab');
             showSubTab('pp','solved', sb);
           }
-          if (sqs.length > 0) showToast('✅ ' + sqs.length + ' question' + (sqs.length!==1?'s':'') + ' solved so far…');
+          const doneMsg = data.allDone
+            ? '✅ All ' + sqs.length + ' questions solved! Generating similar questions…'
+            : '✅ ' + sqs.length + ' question' + (sqs.length!==1?'s':'') + ' solved so far…';
+          if (sqs.length > 0) showToast(doneMsg);
         }
 
         // Generated questions arrive via dedicated event — render immediately
@@ -1210,9 +1220,8 @@ async function analyzePaper() {
             + '<div class="pp-row"><span class="pp-label">Total Marks</span><span class="pp-val">' + (pa.totalMarks||'N/A') + '</span></div>'
             + '<div class="pp-row"><span class="pp-label">Topics</span><span class="pp-val">' + ((pa.topicsCovered||[]).join(', ')||'N/A') + '</span></div>'
             + '<div class="pp-row"><span class="pp-label">Difficulty</span><span class="pp-val">' + (pa.difficultyObservation||'N/A') + '</span></div>';
-          // Only update solved if not already rendered by 'solved' event
-          const sqs = data.solvedQuestions || [];
           // Re-render solved with final complete list (removes the "processing" spinner)
+          const sqs = data.solvedQuestions || [];
           if (sqs.length) {
             document.getElementById('pp-solved').innerHTML = sqs.map((q,i) =>
               '<div class="q-card" onclick="this.classList.toggle(&#39;open&#39;)">'
@@ -1221,15 +1230,18 @@ async function analyzePaper() {
               + '<div class="q-answer">✅ <strong>Model Answer:</strong><br>' + formatAnswer(q.answer||'') + '</div>'
               + '</div>').join('');
           }
-          const gqs = data.generatedQuestions || [];
-          document.getElementById('pp-generated').innerHTML = gqs.length
-            ? gqs.map((q,i) => '<div class="q-card" onclick="this.classList.toggle(&#39;open&#39;)">'
-                + '<div class="q-num">Q' + (i+1) + ' <span class="type-pill">' + (q.type||'—') + '</span> <span class="q-marks">' + (q.marks||'?') + ' marks</span></div>'
-                + '<div class="q-text">' + q.question + '</div>'
-                + '<div class="q-answer">' + formatAnswer(q.answer||'') + '</div>'
-                + '</div>').join('')
-            : '<div class="empty-state"><div class="ei">✨</div><h3>No similar questions</h3></div>';
-          showToast('✅ All done! ' + sqs.length + ' solved + ' + gqs.length + ' new questions.');
+          // Only fill generated tab if 'generated' event hasn't already filled it
+          if (!document.getElementById('pp-generated').querySelector('.q-card')) {
+            const gqs = data.generatedQuestions || [];
+            document.getElementById('pp-generated').innerHTML = gqs.length
+              ? gqs.map((q,i) => '<div class="q-card" onclick="this.classList.toggle(&#39;open&#39;)">'
+                  + '<div class="q-num">Q' + (i+1) + ' <span class="type-pill">' + (q.type||'—') + '</span> <span class="q-marks">' + (q.marks||'?') + ' marks</span></div>'
+                  + '<div class="q-text">' + q.question + '</div>'
+                  + '<div class="q-answer">' + formatAnswer(q.answer||'') + '</div>'
+                  + '</div>').join('')
+              : '<div class="empty-state"><div class="ei">✨</div><h3>No similar questions generated</h3></div>';
+          }
+          showToast('✅ All done! ' + sqs.length + ' solved + ' + (data.generatedQuestions||[]).length + ' new questions.');
         }
 
         if (event === 'error') { showToast(data.error, true); }
