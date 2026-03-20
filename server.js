@@ -248,14 +248,14 @@ function markFallbackCallDone() {
 async function callGroq(prompt, maxTokens = 2048) {
   if (!usingFallback) {
     try {
-      return await groqCall('llama-3.3-70b-versatile', prompt, maxTokens);
+      return await groqCall('llama-4-scout-17b-16e-instruct', prompt, maxTokens);
     } catch(e) {
       if (!isRateLimit(e.message)) throw e;
-      console.log('70b daily limit reached -- switching to llama-3.1-8b-instant');
+      console.log('Scout daily limit reached -- switching to llama-3.1-8b-instant fallback');
       console.log('8b limit: 6000 TPM. Calls auto-spaced 16s apart to stay within limit.');
       usingFallback = true;
       lastFallbackCallTime = 0;
-      setTimeout(() => { usingFallback = false; console.log('Retrying 70b model'); }, 15 * 60 * 1000);
+      setTimeout(() => { usingFallback = false; console.log('Retrying Scout model'); }, 15 * 60 * 1000);
     }
   }
 
@@ -868,40 +868,45 @@ async function analyzePastPaper(files, grade, subject, onProgress = () => {}, on
       return chunks;
     }
 
-    // 3 questions per chunk — each gets a proper answer without token overflow
-    const chunks = splitByQuestions(transcription, 3);
-    console.log('Transcription', transcription.length, 'chars →', chunks.length, 'chunk(s) by question boundary');
+    // Chunk size depends on model:
+    // 70b: 2 questions/chunk — long detailed answers, 4000 token budget
+    // 8b:  1 question/chunk  — keep well within 1800 token limit
+    const perChunk = usingFallback ? 1 : 2;
+    const maxTokens = usingFallback ? 1600 : 4000;
+    const chunks = splitByQuestions(transcription, perChunk);
+    console.log('Transcription', transcription.length, 'chars →', chunks.length, 'chunk(s) of', perChunk, 'q each (' + (usingFallback ? '8b' : '70b') + ' mode)');
 
     for (let ci = 0; ci < chunks.length; ci++) {
-      const chunkLabel = chunks.length > 1 ? ' (part ' + (ci+1) + ' of ' + chunks.length + ')' : '';
-      onProgress('🧠 Solving questions' + chunkLabel + '…');
+      const chunkLabel = chunks.length > 1 ? ' (Q' + (ci*perChunk+1) + (perChunk>1&&ci*perChunk+2<=chunks.length*perChunk ? '–'+(ci*perChunk+perChunk) : '') + ')' : '';
+      onProgress('🧠 Solving' + chunkLabel + ' (' + (ci+1) + '/' + chunks.length + ')…');
 
       const solvePrompt = 'You are an ICSE ' + grade + ' ' + subject + ' teacher.\n'
-        + 'Solve these questions from an uploaded exam paper' + chunkLabel + ':\n\n'
+        + 'Solve the question(s) below from an uploaded exam paper:\n\n'
         + chunks[ci] + '\n\n'
-        + 'For EACH question give a complete model answer.\n'
-        + 'Numericals: show steps as: Given: ... | Formula: ... | Working: ... | Answer: value+unit\n'
-        + 'CRITICAL: answers must be single-line strings — use | or ; to separate steps, NOT line breaks.\n'
-        + 'Output ONLY a JSON array — no wrapper, no markdown, no newlines inside strings:\n'
-        + '[{"qno":"Q1","type":"Short Answer","question":"exact question text","answer":"step1 | step2 | answer","marks":2,"topic":"topic"}]\n'
-        + 'Solve every question. Output JSON array only. No newlines inside string values.';
+        + 'Rules:\n'
+        + '- Give a COMPLETE model answer for every question and sub-part\n'
+        + '- Numericals: Given: values | Formula: formula | Working: step1; step2 | Answer: value + unit\n'
+        + '- Keep answers as single-line strings — separate steps with | not with line breaks\n'
+        + '- Do NOT use real newlines inside any string value\n'
+        + 'Output ONLY a JSON array (no wrapper object, no markdown):\n'
+        + '[{"qno":"Q1(a)","type":"Short Answer","question":"exact question","answer":"complete answer on one line","marks":2,"topic":"topic"}]\n'
+        + 'JSON array only. No newlines inside string values.';
 
-      const solveRaw = await callGroq(solvePrompt, 1800);
+      const solveRaw = await callGroq(solvePrompt, maxTokens);
       let solveText = solveRaw.trim();
       if (solveText.startsWith('[')) solveText = '{"solvedQuestions":' + solveText + '}';
       const solveData = safeJSON(solveText, { solvedQuestions: [] });
-      const chunkSolved = Array.isArray(solveData) ? solveData
-        : (solveData.solvedQuestions || []);
+      const chunkSolved = Array.isArray(solveData) ? solveData : (solveData.solvedQuestions || []);
       solvedQuestions = solvedQuestions.concat(chunkSolved);
-      console.log('Chunk', ci+1, 'solved:', chunkSolved.length, 'questions (total:', solvedQuestions.length + ')');
+      console.log('Chunk', ci+1, '/', chunks.length, 'solved:', chunkSolved.length, 'questions (total:', solvedQuestions.length + ')');
 
-      // Stream results after each chunk — user sees answers as they arrive
+      // Stream results to frontend after each chunk
       if (chunkSolved.length > 0) onSolved(solvedQuestions, paperAnalysis);
 
-      // Gap before next chunk — respects 8b TPM spacing
-      if (ci < chunks.length - 1) await sleep(600);
+      // Gap before next chunk
+      if (ci < chunks.length - 1) await sleep(500);
     }
-    console.log('Total solved:', solvedQuestions.length, 'questions from', chunks.length, 'chunk(s)');
+    console.log('Total solved:', solvedQuestions.length, 'from', chunks.length, 'chunks');
 
   } else {
     // No vision — generate curriculum questions
@@ -1342,7 +1347,7 @@ app.listen(PORT, () => {
     console.log('⚠️  GEMINI_API_KEY not set — document upload will use topic-only fallback');
   }
   if (process.env.GROQ_API_KEY) {
-    console.log('✅ Groq API ready — text generation active');
+    console.log('✅ Groq API ready — primary: llama-4-scout (594 TPS), fallback: llama-3.1-8b');
   } else {
     console.log('❌ GROQ_API_KEY not set — app will not work!');
   }
