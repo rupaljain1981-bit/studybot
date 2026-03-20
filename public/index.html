@@ -1187,7 +1187,20 @@ async function analyzePaper() {
           if (sqs.length > 0) showToast('✅ ' + sqs.length + ' question' + (sqs.length!==1?'s':'') + ' solved so far…');
         }
 
-        // Generated questions arrive second — fill in the second tab
+        // Generated questions arrive via dedicated event — render immediately
+        if (event === 'generated') {
+          const gqs = data.generatedQuestions || [];
+          document.getElementById('pp-generated').innerHTML = gqs.length
+            ? gqs.map((q,i) => '<div class="q-card" onclick="this.classList.toggle(&#39;open&#39;)">'
+                + '<div class="q-num">Q' + (i+1) + ' <span class="type-pill">' + (q.type||'—') + '</span> <span class="q-marks">' + (q.marks||'?') + ' marks</span></div>'
+                + '<div class="q-text">' + q.question + '</div>'
+                + '<div class="q-answer">' + formatAnswer(q.answer||'') + '</div>'
+                + '</div>').join('')
+            : '<div class="empty-state"><div class="ei">✨</div><h3>No similar questions generated</h3><p style="color:var(--muted);font-size:13px">Try again or check Railway logs</p></div>';
+          if (gqs.length) showToast('✅ ' + gqs.length + ' similar questions ready!');
+        }
+
+        // Final analysis event — update summary panel if not already done
         if (event === 'analysis') {
           ppData = data;
           const pa = data.paperAnalysis || {};
