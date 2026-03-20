@@ -193,95 +193,44 @@ CRITICAL RULES:
 5. Questions must be genuinely exam-worthy — not trivial. Match real ICSE board difficulty and language.
 6. Return ONLY valid JSON or HTML exactly as instructed. No markdown fences, no preamble, no explanation.`;
 
-async function groqCall(model, prompt, maxTokens) {
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` },
-    body: JSON.stringify({
-      model,
-      messages: [{ role:'system', content:SYSTEM_PROMPT }, { role:'user', content:prompt }],
-      max_tokens: maxTokens,
-      temperature: 0.3
-    })
-  });
-  if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || 'Groq error'); }
-  const data = await res.json();
-  return data.choices[0].message.content;
-}
-
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const usingFallback = false; // paid tier — always use Scout, no fallback needed
 
-function retryAfterMs(msg) {
-  const m = msg.match(/try again in ([\d.]+)s/i);
-  return m ? Math.ceil(parseFloat(m[1]) * 1000) + 300 : 2500;
-}
-
-function isRateLimit(msg) {
-  return msg.includes('rate_limit') || msg.includes('quota') ||
-         msg.includes('Limit') || msg.includes('429') ||
-         msg.includes('exceeded') || msg.includes('try again in');
-}
-
-// Track which model is active
-let usingFallback = false;
-let lastFallbackCallTime = 0;
-
-// Enforce minimum time between 8b calls to stay under 6000 TPM
-// 1200 tokens output + ~300 input = 1500 tokens per call
-// 6000 TPM / 1500 = max 4 calls/minute → minimum 15s between calls
-async function groqGap(tokensJustUsed = 1200) {
-  if (!usingFallback) return;
-  const now = Date.now();
-  const minGap = 20000; // 20 seconds between 8b calls (6000 TPM / ~1700 tokens/call = max 3.5 calls/min)
-  const elapsed = now - lastFallbackCallTime;
-  if (elapsed < minGap) {
-    const wait = minGap - elapsed;
-    console.log('8b TPM spacing: waiting ' + Math.round(wait/1000) + 's');
-    await sleep(wait);
-  }
-}
-
-function markFallbackCallDone() {
-  if (usingFallback) lastFallbackCallTime = Date.now();
-}
-
-async function callGroq(prompt, maxTokens = 2048) {
-  if (!usingFallback) {
-    try {
-      return await groqCall('llama-4-scout-17b-16e-instruct', prompt, maxTokens);
-    } catch(e) {
-      if (!isRateLimit(e.message)) throw e;
-      console.log('Scout daily limit reached -- switching to llama-3.1-8b-instant fallback');
-      console.log('8b limit: 6000 TPM. Calls auto-spaced 16s apart to stay within limit.');
-      usingFallback = true;
-      lastFallbackCallTime = 0;
-      setTimeout(() => { usingFallback = false; console.log('Retrying Scout model'); }, 15 * 60 * 1000);
-    }
-  }
-
-  // Enforce pre-call gap BEFORE attempting — prevents TPM hit on first try
-  await groqGap();
-  markFallbackCallDone();
-
-  const fallbackTokens = Math.min(maxTokens, 1200);
+async function callGroq(prompt, maxTokens = 3000) {
+  // Paid Groq account — llama-4-scout, no rate limiting, no gaps
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const result = await groqCall('llama-3.1-8b-instant', prompt, fallbackTokens);
-      return result;
-    } catch(e) {
-      if (isRateLimit(e.message) && attempt < 3) {
-        const wait = retryAfterMs(e.message) + 3000;
-        console.log('8b still rate limited -- extra wait ' + wait + 'ms (attempt ' + (attempt+1) + '/3)');
-        await sleep(wait);
-        lastFallbackCallTime = Date.now(); // reset timer after forced wait
-      } else if (attempt === 3) {
-        throw new Error('Groq 8b rate limited after 3 attempts. Please wait 1 minute, or upgrade to Groq Dev ($9/month) to remove limits entirely.');
-      } else {
-        throw e;
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.GROQ_API_KEY}` },
+        body: JSON.stringify({
+          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: prompt }],
+          max_tokens: maxTokens,
+          temperature: 0.3
+        })
+      });
+      if (!res.ok) {
+        const e = await res.json();
+        const msg = e.error?.message || 'Groq error';
+        if (attempt < 3 && (msg.includes('429') || msg.includes('rate') || msg.includes('overloaded'))) {
+          console.log('Groq busy — retrying in 3s (attempt', attempt + 1, '/ 3)');
+          await sleep(3000);
+          continue;
+        }
+        throw new Error(msg);
       }
+      const data = await res.json();
+      return data.choices[0].message.content;
+    } catch(e) {
+      if (attempt === 3) throw e;
+      await sleep(2000);
     }
   }
 }
+
+// groqGap is a no-op on paid tier — kept so call sites don't break
+async function groqGap() {}
 function safeJSON(raw, fallback = {}) {
   if (!raw) return fallback;
   try {
@@ -871,10 +820,9 @@ async function analyzePastPaper(files, grade, subject, onProgress = () => {}, on
     // Chunk size depends on model:
     // 70b: 2 questions/chunk — long detailed answers, 4000 token budget
     // 8b:  1 question/chunk  — keep well within 1800 token limit
-    const perChunk = usingFallback ? 1 : 2;
-    const maxTokens = usingFallback ? 1600 : 4000;
+        const perChunk = 2;
     const chunks = splitByQuestions(transcription, perChunk);
-    console.log('Transcription', transcription.length, 'chars →', chunks.length, 'chunk(s) of', perChunk, 'q each (' + (usingFallback ? '8b' : '70b') + ' mode)');
+    console.log('Transcription', transcription.length, 'chars →', chunks.length, 'chunk(s) (Scout paid tier)');
 
     for (let ci = 0; ci < chunks.length; ci++) {
       const chunkLabel = chunks.length > 1 ? ' (Q' + (ci*perChunk+1) + (perChunk>1&&ci*perChunk+2<=chunks.length*perChunk ? '–'+(ci*perChunk+perChunk) : '') + ')' : '';
@@ -892,7 +840,7 @@ async function analyzePastPaper(files, grade, subject, onProgress = () => {}, on
         + '[{"qno":"Q1(a)","type":"Short Answer","question":"exact question","answer":"complete answer on one line","marks":2,"topic":"topic"}]\n'
         + 'JSON array only. No newlines inside string values.';
 
-      const solveRaw = await callGroq(solvePrompt, maxTokens);
+      const solveRaw = await callGroq(solvePrompt, 3000);
       let solveText = solveRaw.trim();
       if (solveText.startsWith('[')) solveText = '{"solvedQuestions":' + solveText + '}';
       const solveData = safeJSON(solveText, { solvedQuestions: [] });
@@ -903,8 +851,7 @@ async function analyzePastPaper(files, grade, subject, onProgress = () => {}, on
       // Stream results to frontend after each chunk
       if (chunkSolved.length > 0) onSolved(solvedQuestions, paperAnalysis);
 
-      // Gap before next chunk
-      if (ci < chunks.length - 1) await sleep(500);
+      // No gap needed on paid tier — Scout has no TPM limits
     }
     console.log('Total solved:', solvedQuestions.length, 'from', chunks.length, 'chunks');
 
@@ -961,13 +908,9 @@ async function generateQuestions(grade, subject, topic, extractedText = null) {
   const pA = safeJSON(rawA, null);
   if (pA) Object.assign(questions, pA); else console.error('PromptA FAILED:', rawA.slice(0,200));
 
-  await groqGap(1200);
-
   const rawB = await callGroq(pre + buildQPromptB(grade, subject, topic), 1600);
   const pB = safeJSON(rawB, null);
   if (pB) Object.assign(questions, pB); else console.error('PromptB FAILED:', rawB.slice(0,200));
-
-  await groqGap(1200);
 
   const rawC = await callGroq(pre + buildQPromptC(grade, subject, topic), 1800);
   const pC = safeJSON(rawC, null);
@@ -1074,21 +1017,8 @@ app.post('/api/generate-all', upload.array('files', 10), async (req, res) => {
     // ── Phase 2: Generate notes from ALL uploaded pages ───────────────────────
     sseSend(res, 'progress', { stage: 'notes', message: '📝 Generating study notes from your book pages…' });
 
-    // On 8b fallback with large content: split into two halves so each fits token budget
-    let notes = '';
-    if (extractedText && usingFallback && extractedText.length > 2000) {
-      const half = Math.ceil(extractedText.length / 2);
-      const nr1 = await callGroq(buildNotesPrompt(g, s, t, extractedText.slice(0, half)), 1200);
-      notes = nr1.replace(/```html|```/g,'').trim();
-      sseSend(res, 'notes', { notes, visionUsed: true, filesRead: files.length, partial: true });
-      sseSend(res, 'progress', { stage: 'notes', message: '📝 Generating notes from remaining pages…' });
-      await groqGap(1000);
-      const nr2 = await callGroq(buildNotesPrompt(g, s, t, extractedText.slice(half)), 1200);
-      notes = notes + '\n' + nr2.replace(/```html|```/g,'').trim();
-    } else {
-      const notesRaw = await callGroq(buildNotesPrompt(g, s, t, extractedText), usingFallback ? 1200 : 5000);
-      notes = notesRaw.replace(/```html|```/g,'').trim();
-    }
+    const notesRaw = await callGroq(buildNotesPrompt(g, s, t, extractedText), 5000);
+    const notes = notesRaw.replace(/```html|```/g,'').trim();
     sseSend(res, 'notes', { notes, visionUsed: !!extractedText, filesRead: files.length });
 
     // ── Phase 3: Questions — each call gets a different SLICE of book content ─────
@@ -1102,7 +1032,6 @@ app.post('/api/generate-all', upload.array('files', 10), async (req, res) => {
     console.log('Book content:', extractedText ? extractedText.length + ' chars — split into 3 slices for question calls' : 'topic-only');
 
     sseSend(res, 'progress', { stage: 'questions', message: '❓ Generating MCQ and Fill in Blanks…' });
-    await groqGap(usingFallback ? 1000 : 0);
     const sA = bookSlice(extractedText, 0, 3);
     const ctxA = sA ? 'Base ALL questions on this ICSE textbook content:\n' + sA + '\n\n' : '';
     const rawA = await callGroq(ctxA + buildQPromptA(g, s, t), 1800);
@@ -1110,7 +1039,6 @@ app.post('/api/generate-all', upload.array('files', 10), async (req, res) => {
     sseSend(res, 'questions_partial', { types: ['mcq','fillinblanks'], data: pA });
 
     sseSend(res, 'progress', { stage: 'questions', message: '✅ True/False and Odd One Out…' });
-    await groqGap(1000);
     const sB = bookSlice(extractedText, 1, 3);
     const ctxB = sB ? 'Base ALL questions on this ICSE textbook content:\n' + sB + '\n\n' : '';
     const rawB = await callGroq(ctxB + buildQPromptB(g, s, t), 1600);
@@ -1118,21 +1046,16 @@ app.post('/api/generate-all', upload.array('files', 10), async (req, res) => {
     sseSend(res, 'questions_partial', { types: ['truefalse','oddonesout'], data: pB });
 
     sseSend(res, 'progress', { stage: 'questions', message: '💡 Short and Long Answer questions…' });
-    await groqGap(1000);
     const sC = bookSlice(extractedText, 2, 3);
     const ctxC = sC ? 'Base ALL questions on this ICSE textbook content:\n' + sC + '\n\n' : '';
     const rawC = await callGroq(ctxC + buildQPromptC(g, s, t), 1800);
     const pC = safeJSON(rawC, {});
     sseSend(res, 'questions_partial', { types: ['assertionreason','shortanswer','longanswer'], data: pC });
 
-    // ── Phase 4: Question bank (skip on fallback) ─────────────────────────────
-    let bank = { questions: [] };
-    if (!usingFallback) {
-      sseSend(res, 'progress', { stage: 'bank', message: '🏦 Building question bank…' });
-      await sleep(800);
-      const bankRaw = await callGroq(buildBankPrompt(g, s, t), 3000);
-      bank = safeJSON(bankRaw, { questions: [] });
-    }
+    // ── Phase 4: Question bank ───────────────────────────────────────────────
+    sseSend(res, 'progress', { stage: 'bank', message: '🏦 Building question bank…' });
+    const bankRaw = await callGroq(buildBankPrompt(g, s, t), 3000);
+    const bank = safeJSON(bankRaw, { questions: [] });
     sseSend(res, 'bank', { bank });
 
     sseSend(res, 'done', { success: true });
@@ -1312,7 +1235,7 @@ Create visual memory aids. Output ONLY valid JSON:
 {"visualAssociations":[{"concept":"concept from topic","visual":"vivid memorable image to associate with it","tip":"how to use this mental image"},{"concept":"another concept","visual":"vivid image","tip":"usage tip"},{"concept":"third concept","visual":"vivid image","tip":"usage tip"}],"quickRecallCards":[{"front":"Question about topic","back":"Answer with memory hook"},{"front":"Another question","back":"Answer"},{"front":"Question","back":"Answer"},{"front":"Question","back":"Answer"},{"front":"Question","back":"Answer"}]}
 Make everything specific to "${topic}" in ICSE ${grade} ${subject}. Output JSON only.`;
 
-    // Sequential calls with a gap — avoids hammering 8b TPM limit
+    // Sequential calls
     const raw1 = await callGroq(prompt1, 2000);
     await sleep(800);
     const raw2 = await callGroq(prompt2, 1500);
@@ -1347,7 +1270,7 @@ app.listen(PORT, () => {
     console.log('⚠️  GEMINI_API_KEY not set — document upload will use topic-only fallback');
   }
   if (process.env.GROQ_API_KEY) {
-    console.log('✅ Groq API ready — primary: llama-4-scout (594 TPS), fallback: llama-3.1-8b');
+    console.log('✅ Groq paid tier active — llama-4-scout (594 TPS, no rate limits)');
   } else {
     console.log('❌ GROQ_API_KEY not set — app will not work!');
   }
