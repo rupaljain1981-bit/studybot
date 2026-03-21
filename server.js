@@ -787,30 +787,46 @@ async function analyzePastPaper(files, grade, subject, onProgress = () => {}, on
     paperAnalysis = safeJSON(analysisRaw, { totalMarks: 80, sections: [], topicsCovered: [subject], questionTypes: [], difficultyObservation: 'mixed' });
     console.log('Paper analysis done, topics:', paperAnalysis.topicsCovered);
 
-    // ── Smart content splitter — used for both papers and textbooks ─────────────
-    // For papers: split on Q1/Q2/1. question markers
-    // For textbooks: split on section/heading markers
+    // ── Smart content splitter — groups ALL sub-parts of same question together ──
+    // Q5(a), Q5(b), Q5(c) all stay in the same chunk even across page boundaries
     function splitByQuestions(text, maxPerChunk) {
-      // Match question starters: Q1, Q1(a), 1., 1) etc at start of line
-      const qPattern = /(?:^|\n)\s*(?:Q\d+[.(]?|\d+[.)]\s)/gm;
-      const matches = [...text.matchAll(qPattern)];
-      if (matches.length === 0) {
-        // No question markers — split by section headers or just use chunks
-        const sections = text.split(/\n(?=Section|SECTION)/);
+      // Find all Q-number occurrences and group by main question number
+      // e.g. Q1(a), Q1(b) → Q1 block; Q2(a), Q2(b), Q2(c) → Q2 block
+      const allQPattern = /(?:^|\n)[ \t]*(Q(\d+))\s*[.()\[]/gm;
+      const allMatches = [...text.matchAll(allQPattern)];
+
+      if (allMatches.length === 0) {
+        // No Q-markers — try section split, else return whole text
+        const sections = text.split(/\n(?=Section\s|SECTION\s)/);
         return sections.filter(s => s.trim()).length > 1
           ? sections.filter(s => s.trim())
           : [text];
       }
-      // Extract each question as its own string
-      const questions = matches.map((m, i) => {
-        const start = m.index;
-        const end   = matches[i+1] ? matches[i+1].index : text.length;
+
+      // Record first occurrence of each main question number
+      const seenNums = new Set();
+      const mainStarts = [];
+      for (const m of allMatches) {
+        const num = m[2];
+        if (!seenNums.has(num)) {
+          seenNums.add(num);
+          mainStarts.push({ index: m.index, num });
+        }
+      }
+
+      // Extract full block for each main question (includes all sub-parts a/b/c)
+      const questionBlocks = mainStarts.map((ms, i) => {
+        const start = ms.index;
+        const end   = mainStarts[i+1] ? mainStarts[i+1].index : text.length;
         return text.slice(start, end).trim();
       });
-      // Group into chunks of maxPerChunk questions
+
+      console.log('Main question blocks:', questionBlocks.length, '— Q' + mainStarts.map(m=>m.num).join(' Q'));
+
+      // Group into chunks of maxPerChunk MAIN questions (each with all sub-parts)
       const chunks = [];
-      for (let i = 0; i < questions.length; i += maxPerChunk) {
-        chunks.push(questions.slice(i, i + maxPerChunk).join('\n\n'));
+      for (let i = 0; i < questionBlocks.length; i += maxPerChunk) {
+        chunks.push(questionBlocks.slice(i, i + maxPerChunk).join('\n\n'));
       }
       return chunks;
     }
@@ -823,7 +839,7 @@ async function analyzePastPaper(files, grade, subject, onProgress = () => {}, on
     console.log('Transcription', transcription.length, 'chars →', chunks.length, 'chunk(s) (Scout paid tier)');
 
     for (let ci = 0; ci < chunks.length; ci++) {
-      const chunkLabel = chunks.length > 1 ? ' (Q' + (ci*perChunk+1) + (perChunk>1&&ci*perChunk+2<=chunks.length*perChunk ? '–'+(ci*perChunk+perChunk) : '') + ')' : '';
+      const chunkLabel = chunks.length > 1 ? ' (' + (ci+1) + '/' + chunks.length + ')' : '';
       onProgress('🧠 Solving' + chunkLabel + ' (' + (ci+1) + '/' + chunks.length + ')…');
 
       const solvePrompt = 'You are an ICSE ' + grade + ' ' + subject + ' teacher.\n'
